@@ -1,306 +1,272 @@
-/*
-  Multi-ultrasonic (ESP32-S3)
-  - три датчика: left (TRIG=42,ECHO=41), center (TRIG=47,ECHO=21), right (TRIG=20,ECHO=19)
-  - измерение через ISR (CHANGE), сглаживание, FreeRTOS tasks
-  - ESP in AP mode + simple web server returning JSON /data
-*/
-
 #include <Arduino.h>
 #include <WiFi.h>
-#include <WebServer.h>
+#include <ESPAsyncWebServer.h>
+#include <AsyncTCP.h>
+#include <LittleFS.h>
+#include <ArduinoJson.h>
+#include <AsyncJson.h>
 
-// ----------------------------- Конфигурация -----------------------------
-struct SensorCfg {
-  uint8_t trig;
-  uint8_t echo;
-};
+// --- Конфигурация ---
+const char *SSID = "ESP32-Parking-Cam";
+const char *PASSWORD = "12345678";
+#define SETTINGS_FILE "/settings.json"
+#define SENSORS_UPDATE_INTERVAL_MS 150
+#define STREAM_FRAME_INTERVAL_MS 100 // ~10 FPS
 
-SensorCfg cfgs[3] = {
-  {42, 41}, // left
-  {45, 48}, // center
-  {47, 21}  // right
-};
+// --- Глобальные объекты ---
+AsyncWebServer server(80);
+AsyncWebSocket ws("/ws");
+StaticJsonDocument<1024> settings;
 
-const int NUM_SENS = 3;
-const int SMOOTH_LEN = 6;         // длина буфера сглаживания
-const float MAX_DELTA_CM = 15.0;  // максимальное изменение за одно обновление
-const int SENSOR_TIMEOUT_MS = 60; // таймаут ожидания эхо в ms
+// --- Прототипы функций ---
+void generateSensorData(void *parameter);
+void notifyClients();
+void onEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len);
+JsonObject getDefaultSettings();
+void loadSettings();
+void saveSettings();
 
-// WiFi AP
-const char *AP_SSID = "ESP32_Park_AP";
-const char *AP_PASS = "park12345";
+// --- Переменные состояния ---
+TaskHandle_t sensorTaskHandle = NULL;
+float sensorDistances[3] = {2.5f, 2.5f, 2.5f};
+bool streamActive = true;
 
-// WebServer
-WebServer server(80);
-
-// ----------------------------- Данные сенсоров -----------------------------
-volatile unsigned long t_rise[NUM_SENS] = {0};
-volatile unsigned long t_fall[NUM_SENS] = {0};
-volatile bool have_rise[NUM_SENS] = {false};
-volatile bool have_pulse[NUM_SENS] = {false};
-
-// сглаживание и буферы
-float smoothBuf[NUM_SENS][SMOOTH_LEN];
-int smoothIdx[NUM_SENS] = {0};
-float smoothedVal[NUM_SENS] = {0.0};
-bool initialFilled[NUM_SENS] = {false};
-
-// синхронизация (ESP32)
-portMUX_TYPE sensorMux = portMUX_INITIALIZER_UNLOCKED;
-
-// ----------------------------- ISR для каждого датчика -----------------------------
-void IRAM_ATTR echoChange0() {
-  int level = digitalRead(cfgs[0].echo);
-  unsigned long now = micros();
-  if (level == HIGH) {
-    t_rise[0] = now;
-    have_rise[0] = true;
-  } else {
-    if (have_rise[0]) {
-      t_fall[0] = now;
-      have_pulse[0] = true;
-      have_rise[0] = false;
-    }
-  }
-}
-void IRAM_ATTR echoChange1() {
-  int level = digitalRead(cfgs[1].echo);
-  unsigned long now = micros();
-  if (level == HIGH) {
-    t_rise[1] = now;
-    have_rise[1] = true;
-  } else {
-    if (have_rise[1]) {
-      t_fall[1] = now;
-      have_pulse[1] = true;
-      have_rise[1] = false;
-    }
-  }
-}
-void IRAM_ATTR echoChange2() {
-  int level = digitalRead(cfgs[2].echo);
-  unsigned long now = micros();
-  if (level == HIGH) {
-    t_rise[2] = now;
-    have_rise[2] = true;
-  } else {
-    if (have_rise[2]) {
-      t_fall[2] = now;
-      have_pulse[2] = true;
-      have_rise[2] = false;
-    }
-  }
-}
-
-// ----------------------------- Утилиты -----------------------------
-void sendTriggerPin(uint8_t trigPin) {
-  digitalWrite(trigPin, LOW);
-  delayMicroseconds(2);
-  digitalWrite(trigPin, HIGH);
-  delayMicroseconds(10); // 10 µs trigger
-  digitalWrite(trigPin, LOW);
-}
-
-float microsToCm(unsigned long us) {
-  // speed of sound approx 343 m/s -> round-trip: us / 58 = cm (approx)
-  return (float)us / 58.0f;
-}
-
-float smoothAndClamp(int idx, float newVal) {
-  // ограничиваем резкие скачки относительно последнего smoothedVal
-  portENTER_CRITICAL(&sensorMux);
-  float prev = smoothedVal[idx];
-  portEXIT_CRITICAL(&sensorMux);
-
-  if (!initialFilled[idx]) {
-    // заполняем буфер начальными значениями
-    for (int i = 0; i < SMOOTH_LEN; ++i) smoothBuf[idx][i] = newVal;
-    smoothIdx[idx] = 0;
-    initialFilled[idx] = true;
-    float avg = newVal;
-    portENTER_CRITICAL(&sensorMux);
-    smoothedVal[idx] = avg;
-    portEXIT_CRITICAL(&sensorMux);
-    return avg;
-  }
-
-  float delta = newVal - prev;
-  if (fabs(delta) > MAX_DELTA_CM) {
-    // ограничим
-    if (delta > 0) newVal = prev + MAX_DELTA_CM;
-    else newVal = prev - MAX_DELTA_CM;
-  }
-
-  smoothBuf[idx][smoothIdx[idx]] = newVal;
-  smoothIdx[idx] = (smoothIdx[idx] + 1) % SMOOTH_LEN;
-
-  float sum = 0;
-  for (int i = 0; i < SMOOTH_LEN; ++i) sum += smoothBuf[idx][i];
-  float avg = sum / (float)SMOOTH_LEN;
-
-  portENTER_CRITICAL(&sensorMux);
-  smoothedVal[idx] = avg;
-  portEXIT_CRITICAL(&sensorMux);
-
-  return avg;
-}
-
-// ----------------------------- Задачи FreeRTOS -----------------------------
-void readSensorsTask(void *pvParameters) {
-  (void) pvParameters;
-  for (;;) {
-    for (int i = 0; i < NUM_SENS; ++i) {
-      // сброс флагов до триггера
-      portENTER_CRITICAL(&sensorMux);
-      have_pulse[i] = false;
-      have_rise[i] = false;
-      portEXIT_CRITICAL(&sensorMux);
-
-      // триггерим
-      sendTriggerPin(cfgs[i].trig);
-
-      // ждём измерение (с таймаутом) — адаптивно опрашиваем
-      unsigned long startMs = millis();
-      bool ok = false;
-      while ((millis() - startMs) < SENSOR_TIMEOUT_MS) {
-        if (have_pulse[i]) { ok = true; break; }
-        // даём шанс другим таскам
-        vTaskDelay(pdMS_TO_TICKS(1));
-      }
-
-      if (ok) {
-        // захватываем времена
-        unsigned long tr, tf;
-        portENTER_CRITICAL(&sensorMux);
-        tr = t_rise[i];
-        tf = t_fall[i];
-        // clear flag (готово)
-        have_pulse[i] = false;
-        portEXIT_CRITICAL(&sensorMux);
-
-        unsigned long dur = (tf > tr) ? (tf - tr) : 0;
-        float dist = microsToCm(dur);
-        float avg = smoothAndClamp(i, dist);
-
-        // можно вести лог в Serial
-        // Serial.printf("S%d dur=%lu us raw=%.2f cm smooth=%.2f cm\n", i, dur, dist, avg);
-      } else {
-        // timeout: можно отметить как очень большая дистанция или -1
-        // не затираем smoothedVal, просто логим при необходимости
-        // Serial.printf("S%d TIMEOUT\n", i);
-      }
-
-      // невеликая пауза между триггерами, чтобы датчики не мешали друг другу
-      vTaskDelay(pdMS_TO_TICKS(30));
-    }
-
-    // Пауза между полными кругами измерений
-    vTaskDelay(pdMS_TO_TICKS(30));
-  }
-}
-
-void webServerTask(void *pvParameters) {
-  (void) pvParameters;
-
-  // handlers
-  server.on("/", HTTP_GET, []() {
-    // простой HTML/JS, который запрашивает /data
-    const char* page =
-      "<!doctype html><html><head><meta charset='utf-8'><title>Parktronic</title>"
-      "<style>body{font-family:Arial,Helvetica,sans-serif;padding:10px;} .s{margin:6px 0;padding:8px;border:1px solid #ddd;border-radius:6px;width:260px}</style>"
-      "</head><body>"
-      "<h2>ESP32 Parktronic</h2>"
-      "<div id='left' class='s'>Left: -- cm</div>"
-      "<div id='center' class='s'>Center: -- cm</div>"
-      "<div id='right' class='s'>Right: -- cm</div>"
-      "<script>"
-      "async function fetchData(){try{let r=await fetch('/data');let j=await r.json();document.getElementById('left').textContent='Left: '+j.left.toFixed(1)+' cm';document.getElementById('center').textContent='Center: '+j.center.toFixed(1)+' cm';document.getElementById('right').textContent='Right: '+j.right.toFixed(1)+' cm';}catch(e){console.log(e);} }"
-      "setInterval(fetchData,200);fetchData();"
-      "</script></body></html>";
-    server.send(200, "text/html", page);
-  });
-
-  server.on("/data", HTTP_GET, []() {
-    float l, c, r;
-    portENTER_CRITICAL(&sensorMux);
-    l = smoothedVal[0];
-    c = smoothedVal[1];
-    r = smoothedVal[2];
-    portEXIT_CRITICAL(&sensorMux);
-
-    // формируем простую JSON строку
-    char buf[128];
-    snprintf(buf, sizeof(buf), "{\"left\":%.2f,\"center\":%.2f,\"right\":%.2f}", l, c, r);
-    server.send(200, "application/json", buf);
-  });
-
-  server.begin();
-  Serial.println("HTTP server started");
-
-  for (;;) {
-    // WebServer в loop нужно вызывать в задаче
-    server.handleClient();
-    vTaskDelay(pdMS_TO_TICKS(10));
-  }
-}
-
-void displayTask(void *pvParameters) {
-  (void) pvParameters;
-  for (;;) {
-    // Периодически печатаем в Serial (индикация / lcd / leds можно выводить тут)
-    portENTER_CRITICAL(&sensorMux);
-    float l = smoothedVal[0];
-    float c = smoothedVal[1];
-    float r = smoothedVal[2];
-    portEXIT_CRITICAL(&sensorMux);
-
-    Serial.printf("LEFT: %.2f cm | CENTER: %.2f cm | RIGHT: %.2f cm\n", l, c, r);
-    vTaskDelay(pdMS_TO_TICKS(500));
-  }
-}
-
-// ----------------------------- setup / loop -----------------------------
-void setupPinsAndISRs() {
-  for (int i = 0; i < NUM_SENS; ++i) {
-    pinMode(cfgs[i].trig, OUTPUT);
-    digitalWrite(cfgs[i].trig, LOW);
-    pinMode(cfgs[i].echo, INPUT);
-  }
-
-  // attach interrupts (по одному handler на каждый датчик)
-  attachInterrupt(digitalPinToInterrupt(cfgs[0].echo), echoChange0, CHANGE);
-  attachInterrupt(digitalPinToInterrupt(cfgs[1].echo), echoChange1, CHANGE);
-  attachInterrupt(digitalPinToInterrupt(cfgs[2].echo), echoChange2, CHANGE);
-}
-
+// =================================================================
+// SETUP - Инициализация
+// =================================================================
 void setup() {
-  Serial.begin(115200);
-  delay(100);
+    Serial.begin(115200);
+    Serial.println("\n[SERVER] Initializing...");
 
-  // заполнение начальных значений нулями
-  for (int i = 0; i < NUM_SENS; ++i) {
-    for (int j = 0; j < SMOOTH_LEN; ++j) smoothBuf[i][j] = 0.0;
-    smoothedVal[i] = 0.0;
-    initialFilled[i] = false;
-  }
+    if (!LittleFS.begin(true)) {
+        Serial.println("[ERROR] LittleFS Mount Failed. Halting.");
+        while(1) delay(1000);
+    }
+    Serial.println("[INFO] LittleFS Mounted.");
 
-  setupPinsAndISRs();
+    loadSettings();
 
-  // start WiFi AP
-  WiFi.mode(WIFI_AP);
-  WiFi.softAP(AP_SSID, AP_PASS);
-  IPAddress ip = WiFi.softAPIP();
-  Serial.printf("AP started: %s (IP %s)\n", AP_SSID, ip.toString().c_str());
+    WiFi.softAP(SSID, PASSWORD);
+    Serial.print("[WIFI] AP IP address: ");
+    Serial.println(WiFi.softAPIP());
 
-  // создаём задачи
-  xTaskCreatePinnedToCore(readSensorsTask, "ReadSens", 4096, NULL, 5, NULL, 1);
-  xTaskCreatePinnedToCore(webServerTask, "WebSrv", 8192, NULL, 3, NULL, 1);
-  xTaskCreatePinnedToCore(displayTask, "Disp", 4096, NULL, 1, NULL, 1);
+    ws.onEvent(onEvent);
+    server.addHandler(&ws);
 
-  Serial.println("Setup complete");
+    // --- НАСТРОЙКА МАРШРУТОВ (ИСПРАВЛЕННАЯ СЕКЦИЯ) ---
+    
+    // 1. Обслуживание ВСЕЙ статики
+    // Маршрут: / соответствует корню LittleFS.
+    // .setDefaultFile("index.html") автоматически отдаст index.html при запросе /
+    // Этот обработчик неблокирующий и сам разрулит все 404 для файлов.
+    server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html");
+    
+    // 2. Обработчики API 
+    
+    server.on("/api/settings", HTTP_GET, [](AsyncWebServerRequest *request) {
+        String response;
+        serializeJson(settings, response);
+        request->send(200, "application/json", response);
+    });
+
+    AsyncCallbackJsonWebHandler *handler = new AsyncCallbackJsonWebHandler("/api/settings", [](AsyncWebServerRequest *request, JsonVariant &json) {
+        settings.clear();
+        settings = json.as<JsonObject>();
+        saveSettings();
+        request->send(200, "application/json", "{\"status\":\"ok\"}");
+    });
+    server.addHandler(handler);
+
+    server.on("/api/action", HTTP_POST, [](AsyncWebServerRequest *request){}, NULL, [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total){
+        StaticJsonDocument<96> doc;
+        // Проверяем, что есть данные для десериализации
+        if (len > 0) {
+            deserializeJson(doc, (const char*)data);
+            String action = doc["action"];
+            
+            if (action == "toggleStream") {
+                streamActive = !streamActive;
+                settings["stream_active"] = streamActive;
+                Serial.printf("[ACTION] Stream toggled: %s\n", streamActive ? "ON" : "OFF");
+            } else if (action == "toggleMute") {
+                settings["is_muted"] = !settings["is_muted"].as<bool>();
+                Serial.printf("[ACTION] Mute toggled: %s\n", settings["is_muted"].as<bool>() ? "ON" : "OFF");
+            }
+            saveSettings(); 
+        }
+        request->send(200, "application/json", "{\"status\":\"ok\"}");
+    });
+
+    server.on("/api/snapshot", HTTP_GET, [](AsyncWebServerRequest *request){
+        // request->send(LittleFS, "/assets/XGA.jpg", "image/jpeg");
+        // Явно проверяем, чтобы не попасть в рекурсивный 404, если файл не найден
+        if (LittleFS.exists("/assets/XGA.jpg")) {
+            request->send(LittleFS, "/assets/XGA.jpg", "image/jpeg");
+        } else {
+             request->send(404, "text/plain", "Snapshot image not found");
+        }
+    });
+    
+    // 3. Видеопоток (без изменений, с исправлением WDT от прошлой итерации)
+    server.on("/stream", HTTP_GET, [](AsyncWebServerRequest *request){
+        AsyncWebServerResponse *response = request->beginResponseStream("multipart/x-mixed-replace; boundary=--frame");
+        response->addHeader("Access-Control-Allow-Origin", "*");
+        
+        File frameFile = LittleFS.open("/assets/XGA.jpg", "r");
+        if (!frameFile) {
+            Serial.println("[ERROR] /assets/XGA.jpg not found for stream.");
+            request->send(404);
+            return;
+        }
+        size_t fileSize = frameFile.size();
+        uint8_t* frameBuffer = (uint8_t*)malloc(fileSize);
+        if (!frameBuffer) {
+            frameFile.close();
+            Serial.println("[ERROR] Not enough memory for frame buffer.");
+            request->send(500, "text/plain", "Not enough memory");
+            return;
+        }
+        frameFile.read(frameBuffer, fileSize);
+        frameFile.close();
+
+        while (true) {
+            if (!request->client()->connected()) {
+                Serial.println("[STREAM] Client disconnected.");
+                break;
+            }
+
+            if (streamActive) {
+                String header = "--frame\r\nContent-Type: image/jpeg\r\nContent-Length: " + String(fileSize) + "\r\n\r\n";
+                // Используем static_cast для асинхронной записи
+                static_cast<AsyncResponseStream*>(response)->write((const uint8_t*)header.c_str(), header.length());
+                static_cast<AsyncResponseStream*>(response)->write(frameBuffer, fileSize);
+                static_cast<AsyncResponseStream*>(response)->write((const uint8_t*)"\r\n", 2);
+            }
+            
+            // Задержка потока
+            vTaskDelay(STREAM_FRAME_INTERVAL_MS / portTICK_PERIOD_MS);
+        }
+        
+        free(frameBuffer);
+        request->send(response);
+    });
+
+    // 4. Оставшийся 404 обработчик (только для API, которые не были найдены)
+    server.onNotFound([](AsyncWebServerRequest *request) {
+        Serial.printf("[404] URL Not Found: %s\n", request->url().c_str());
+        request->send(404, "text/plain", "Not Found (API or unhandled URL)");
+    });
+
+    server.begin();
+    Serial.println("[SERVER] HTTP server started.");
+
+    xTaskCreate(
+        generateSensorData, "SensorDataGenerator", 4096, NULL, 1, &sensorTaskHandle
+    );
 }
 
+// ... (остальные функции loadSettings, saveSettings и т.д. без изменений)
+
+// =================================================================
+// LOOP - Основной цикл
+// =================================================================
 void loop() {
-  // пусто — всё в тасках
-  delay(1000);
+    ws.cleanupClients();
+}
+
+// =================================================================
+// Функции
+// =================================================================
+void generateSensorData(void *parameter) {
+    for (;;) { 
+        sensorDistances[0] = 2.0f + (sin(millis() / 1000.0f) * 1.8f);
+        sensorDistances[1] = 1.5f + (cos(millis() / 700.0f) * 1.45f);
+        sensorDistances[2] = 2.0f + (sin(millis() / 1200.0f) * 1.9f);
+
+        for (int i=0; i<3; i++) {
+            if (sensorDistances[i] < 0.1) sensorDistances[i] = 0.1;
+        }
+        
+        if (ws.count() > 0) {
+            notifyClients();
+        }
+        
+        vTaskDelay(SENSORS_UPDATE_INTERVAL_MS / portTICK_PERIOD_MS);
+    }
+}
+
+void notifyClients() {
+    StaticJsonDocument<100> doc;
+    JsonArray sensors = doc.createNestedArray("sensors");
+    sensors.add(sensorDistances[0]);
+    sensors.add(sensorDistances[1]);
+    sensors.add(sensorDistances[2]);
+    
+    String json;
+    serializeJson(doc, json);
+    ws.textAll(json);
+}
+
+void onEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len) {
+    switch (type) {
+        case WS_EVT_CONNECT:
+            Serial.printf("[WS] WebSocket client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
+            break;
+        case WS_EVT_DISCONNECT:
+            Serial.printf("[WS] WebSocket client #%u disconnected\n", client->id());
+            break;
+        default:
+            break;
+    }
+}
+
+JsonObject getDefaultSettings() {
+    StaticJsonDocument<1024> doc; 
+    JsonObject root = doc.to<JsonObject>();
+    root["thresh_yellow"] = 2.0; root["thresh_orange"] = 1.0; root["thresh_red"] = 0.5;
+    root["bpm_min"] = 0; root["bpm_max"] = 300; root["auto_start"] = true;
+    root["show_grid"] = true; root["cam_angle"] = 45; 
+    root["grid_opacity"] = 0.8;
+    root["grid_offset_x"] = 0; root["grid_offset_y"] = 0; root["grid_offset_z"] = 0;
+    root["resolution"] = "XGA"; root["jpeg_quality"] = 12;
+    root["flip_h"] = true; root["flip_v"] = false; 
+    root["is_muted"] = false; root["stream_active"] = true;
+    root["wifi_ssid"] = "ESP32_AP"; root["wifi_pass"] = "12345678";
+    return root;
+}
+
+void loadSettings() {
+    if (LittleFS.exists(SETTINGS_FILE)) {
+        File file = LittleFS.open(SETTINGS_FILE, "r");
+        if (file) {
+            DeserializationError error = deserializeJson(settings, file);
+            if (error) {
+                Serial.println("[ERROR] Failed to read settings, using defaults.");
+                settings = getDefaultSettings();
+            } else {
+                Serial.println("[SETTINGS] Loaded settings from file.");
+            }
+            file.close();
+        }
+    } else {
+        Serial.println("[SETTINGS] No settings file found, creating defaults.");
+        settings = getDefaultSettings(); 
+        saveSettings();
+    }
+    streamActive = settings["stream_active"];
+}
+
+void saveSettings() {
+    File file = LittleFS.open(SETTINGS_FILE, "w");
+    if (!file) {
+        Serial.println("[ERROR] Failed to open settings file for writing.");
+        return;
+    }
+    if (serializeJson(settings, file) == 0) {
+        Serial.println("[ERROR] Failed to write settings to file.");
+    } else {
+        Serial.println("[SETTINGS] Settings saved to file.");
+    }
+    file.close();
+    streamActive = settings["stream_active"];
 }

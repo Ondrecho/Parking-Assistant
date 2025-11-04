@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Настройки</title>
+    <link rel="stylesheet" href="css/main.css">
+    <link rel="stylesheet" href="css/settings.css">
+</head>
+<body>
+
+    <header class="settings-header">
+            <a href="index.html" class="icon-button back-link" title="Назад">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 11H7.8l5.6-5.6L12 4l-8 8 8 8 1.4-1.4L7.8 13H20v-2z"/></svg>
+            </a>
+            <h1>Настройки</h1>
+            <button id="reset-settings" class="icon-button reset-button" title="Сбросить к настройкам по умолчанию">
+                <svg viewBox="0 0 25 25" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <g id="SVGRepo_iconCarrier"> 
+                        <path d="M4.56189 13.5L4.14285 13.9294L4.5724 14.3486L4.99144 13.9189L4.56189 13.5ZM9.92427 15.9243L15.9243 9.92427L15.0757 9.07574L9.07574 15.0757L9.92427 15.9243ZM9.07574 9.92426L15.0757 15.9243L15.9243 15.0757L9.92426 9.07574L9.07574 9.92426ZM19.9 12.5C19.9 16.5869 16.5869 19.9 12.5 19.9V21.1C17.2496 21.1 21.1 17.2496 21.1 12.5H19.9ZM5.1 12.5C5.1 8.41309 8.41309 5.1 12.5 5.1V3.9C7.75035 3.9 3.9 7.75035 3.9 12.5H5.1ZM12.5 5.1C16.5869 5.1 19.9 8.41309 19.9 12.5H21.1C21.1 7.75035 17.2496 3.9 12.5 3.9V5.1ZM5.15728 13.4258C5.1195 13.1227 5.1 12.8138 5.1 12.5H3.9C3.9 12.8635 3.92259 13.2221 3.9665 13.5742L5.15728 13.4258ZM12.5 19.9C9.9571 19.9 7.71347 18.6179 6.38048 16.6621L5.38888 17.3379C6.93584 19.6076 9.54355 21.1 12.5 21.1V19.9ZM4.99144 13.9189L7.42955 11.4189L6.57045 10.5811L4.13235 13.0811L4.99144 13.9189ZM4.98094 13.0706L2.41905 10.5706L1.58095 11.4294L4.14285 13.9294L4.98094 13.0706Z" fill="currentColor"/>
+                    </g>
+                </svg>
+            </button>
+    </header>
+
+    <main class="settings-container">
+        <div class="tab-bar">
+            <button class="tab-link active" data-tab="tab-parktronic">Парктроник</button>
+            <button class="tab-link" data-tab="tab-camera">Изображение</button>
+            <button class="tab-link" data-tab="tab-wifi">Wi-Fi</button>
+        </div>
+
+        <form id="settings-form">
+            
+            <div id="tab-parktronic" class="tab-content active">
+                <h3>Пороги срабатывания (в метрах)</h3>
+                <div class="form-group"><label for="thresh-yellow">Желтый ( &lt; )</label><input type="number" id="thresh-yellow" name="thresh_yellow" step="0.1" value="2.0"></div>
+                <div class="form-group"><label for="thresh-orange">Оранжевый ( &lt; )</label><input type="number" id="thresh-orange" name="thresh_orange" step="0.1" value="1.0"></div>
+                <div class="form-group"><label for="thresh-red">Красный ( &lt; )</label><input type="number" id="thresh-red" name="thresh_red" step="0.1" value="0.5"></div>
+                <h3>Звуковая индикация (BPM)</h3>
+                <div class="form-group"><label for="bpm-min">Мин. BPM</label><input type="number" id="bpm-min" name="bpm_min" value="0"></div>
+                <div class="form-group"><label for="bpm-max">Макс. BPM</label><input type="number" id="bpm-max" name="bpm_max" value="300"></div>
+                <h3>Прочее</h3>
+                <div class="form-group form-group-toggle"><label for="auto-start">Включать при заднем ходе</label><input type="checkbox" id="auto-start" name="auto_start" class="toggle-switch" checked></div>
+            </div>
+
+            <div id="tab-camera" class="tab-content">
+                <div class="settings-preview">
+                    <div class="video-wrapper">
+                        <img id="preview-image" src="" alt="Предпросмотр с камеры">
+                        <div class="scene" id="preview-scene">
+                            <div class="grid-plane" id="preview-grid-plane"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="settings-controls">
+                    <h3>Проекция сетки</h3>
+                    <div class="form-group form-group-toggle"><label for="show-grid">Показывать сетку</label><input type="checkbox" id="show-grid" name="show_grid" class="toggle-switch" checked></div>
+                    <fieldset id="grid-settings-fieldset">
+                        <div class="form-group">
+                            <label for="cam-angle">Угол наклона (°)</label>
+                            <input type="range" id="cam-angle" name="cam_angle" min="-90" max="90" value="0">
+                            <span id="cam-angle-value">0°</span>
+                        </div>
+                        <div class="form-group">
+                            <label for="grid-offset-x">Смещение по горизонтали (X)</label>
+                            <input type="range" id="grid-offset-x" name="grid_offset_x" min="-400" max="400" value="0">
+                            <span id="grid-offset-x-value">0 px</span>
+                        </div>
+                        <div class="form-group">
+                            <label for="grid-offset-y">Смещение по вертикали (Y)</label>
+                            <input type="range" id="grid-offset-y" name="grid_offset_y" min="-400" max="400" value="0">
+                            <span id="grid-offset-y-value">0 px</span>
+                        </div>
+                        <div class="form-group">
+                            <label for="grid-offset-z">Приближение / Отдаление (Z)</label>
+                            <input type="range" id="grid-offset-z" name="grid_offset_z" min="-400" max="400" value="0">
+                            <span id="grid-offset-z-value">0 px</span>
+                        </div>
+                        <div class="form-group">
+                            <label for="grid-opacity">Прозрачность сетки</label>
+                            <input type="range" id="grid-opacity" name="grid_opacity" min="0" max="1" step="0.1" value="0.8">
+                            <span id="grid-opacity-value">0.8</span>
+                        </div>
+                    </fieldset>
+                    
+                    <h3>Видео</h3>
+                    <div class="form-group"><label for="resolution">Разрешение</label><select id="resolution" name="resolution"><option value="QQVGA">QQVGA (160x120)</option><option value="QVGA">QVGA (320x240)</option><option value="VGA" selected>VGA (640x480)</option><option value="SVGA">SVGA (800x600)</option><option value="XGA">XGA (1024x768)</option></select></div>
+                    <div class="form-group"><label for="jpeg-quality">Качество JPEG (10=лучшее)</label><input type="range" id="jpeg-quality" name="jpeg_quality" min="10" max="63" value="12"><span id="jpeg-quality-value">12</span></div>
+
+                    <h3>Обработка</h3>
+                    <div class="form-group form-group-toggle"><label for="flip-h">Отразить по горизонтали</label><input type="checkbox" id="flip-h" name="flip_h" class="toggle-switch"></div>
+                    <div class="form-group form-group-toggle"><label for="flip-v">Отразить по вертикали</label><input type="checkbox" id="flip-v" name="flip_v" class="toggle-switch"></div>
+                </div>
+            </div>
+
+            <div id="tab-wifi" class="tab-content">
+                <h3>Точка доступа (AP)</h3>
+                <div class="form-group"><label for="wifi-ssid">Имя сети (SSID)</label><input type="text" id="wifi-ssid" name="wifi_ssid"></div>
+                <div class="form-group"><label for="wifi-pass">Пароль</label><input type="text" id="wifi-pass" name="wifi_pass"></div>
+            </div>
+
+            <div class="form-actions">
+                <button type="submit" id="save-settings" class="button-primary">Сохранить</button>
+                <span id="save-status"></span>
+            </div>
+        </form>
+    </main>
+    
+    <script src="js/settings.js" type="module"></script>
+</body>
+</html>
