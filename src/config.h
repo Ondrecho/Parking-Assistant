@@ -51,7 +51,7 @@ struct AppSettings {
     int grid_offset_x;
     int grid_offset_y;
     int grid_offset_z;
-    int resolution; // Используем framesize_t из esp_camera.h
+    char resolution[16];
     int jpeg_quality;
     bool flip_h;
     bool flip_v;

@@ -97,7 +97,7 @@ void handle_post_settings(AsyncWebServerRequest *request, uint8_t *data, size_t 
         if (doc.containsKey("grid_offset_x")) g_app_state.settings.grid_offset_x = doc["grid_offset_x"];
         if (doc.containsKey("grid_offset_y")) g_app_state.settings.grid_offset_y = doc["grid_offset_y"];
         if (doc.containsKey("grid_offset_z")) g_app_state.settings.grid_offset_z = doc["grid_offset_z"];
-        if (doc.containsKey("resolution")) g_app_state.settings.resolution = doc["resolution"];
+        if (doc.containsKey("resolution")) strlcpy(g_app_state.settings.resolution, doc["resolution"], sizeof(g_app_state.settings.resolution));
         if (doc.containsKey("jpeg_quality")) g_app_state.settings.jpeg_quality = doc["jpeg_quality"];
         if (doc.containsKey("flip_h")) g_app_state.settings.flip_h = doc["flip_h"];
         if (doc.containsKey("flip_v")) g_app_state.settings.flip_v = doc["flip_v"];

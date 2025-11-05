@@ -18,7 +18,7 @@ void load_default_settings() {
     g_app_state.settings.grid_offset_x = 0;
     g_app_state.settings.grid_offset_y = 0;
     g_app_state.settings.grid_offset_z = 0;
-    g_app_state.settings.resolution = (int)FRAMESIZE_VGA;
+    strlcpy(g_app_state.settings.resolution, "XGA", sizeof(g_app_state.settings.resolution));
     g_app_state.settings.jpeg_quality = 12;
     g_app_state.settings.flip_h = true;
     g_app_state.settings.flip_v = false;
@@ -48,7 +48,7 @@ void settings_init() {
                 g_app_state.settings.grid_offset_x = doc["grid_offset_x"] | 0;
                 g_app_state.settings.grid_offset_y = doc["grid_offset_y"] | 0;
                 g_app_state.settings.grid_offset_z = doc["grid_offset_z"] | 0;
-                g_app_state.settings.resolution = doc["resolution"] | (int)FRAMESIZE_VGA;
+                strlcpy(g_app_state.settings.resolution, doc["resolution"] | "XGA", sizeof(g_app_state.settings.resolution));
                 g_app_state.settings.jpeg_quality = doc["jpeg_quality"] | 12;
                 g_app_state.settings.flip_h = doc["flip_h"] | true;
                 g_app_state.settings.flip_v = doc["flip_v"] | false;
