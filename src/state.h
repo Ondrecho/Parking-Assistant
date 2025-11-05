@@ -16,7 +16,8 @@ extern SemaphoreHandle_t xStateMutex; // Мьютекс для защиты g_ap
 extern EventGroupHandle_t xAppEventGroup; // Группа событий для управления задачами
 
 // --- Биты для группы событий ---
-const EventBits_t CAM_STREAM_REQUEST_BIT = (1 << 0); // Бит: клиент запрашивает стрим
+const EventBits_t CAM_STREAM_REQUEST_BIT = (1 << 0); // Клиент запрашивает стрим
+const EventBits_t CAM_INITIALIZED_BIT    = (1 << 1); // Камера готова к работе
 
 // --- Утилиты для безопасного доступа к состоянию ---
 // (В будущем здесь можно будет добавить inline-функции для блокировки/разблокировки)
