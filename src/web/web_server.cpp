@@ -123,14 +123,16 @@ void init_web_server() {
     ws.onEvent(onWsEvent);
     server.addHandler(&ws);
 
-    server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html").setCacheControl("max-age=600");
-
+    // --- Сначала регистрируем API и будущие обработчики ---
     server.on("/api/settings", HTTP_GET, handle_get_settings);
     server.on("/api/settings", HTTP_POST, 
         [](AsyncWebServerRequest *request){ request->send(200); },
         NULL,
         handle_post_settings
     );
+    // Здесь в будущем будут /api/action, /stream, /api/snapshot
+
+    server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html").setCacheControl("max-age=600"); // <-- ПЕРЕМЕСТИЛИ ЭТУ СТРОКУ ВНИЗ
     
     server.onNotFound(onNotFound);
 
