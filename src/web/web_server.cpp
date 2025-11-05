@@ -5,19 +5,16 @@
 #include "state.h"
 #include "config.h"
 #include "settings_manager.h"
+#include "tasks/camera_task.h" // <-- Добавили
 
 // --- Глобальные объекты сервера ---
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
+volatile int stream_clients_count = 0; // Счетчик активных клиентов стрима
 
 // --- Вспомогательные функции ---
-int get_ws_clients_count() {
-    return ws.count();
-}
-
-void broadcast_ws_text(const char* data, size_t len) {
-    ws.textAll(data, len);
-}
+int get_ws_clients_count() { return ws.count(); }
+void broadcast_ws_text(const char* data, size_t len) { ws.textAll(data, len); }
 
 // --- Обработчики ---
 
@@ -27,7 +24,7 @@ void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventTyp
     Serial.printf("WS client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
   } else if (type == WS_EVT_DISCONNECT) {
     Serial.printf("WS client #%u disconnected\n", client->id());
-  }
+}
 }
 
 // Обработчик для несуществующих страниц
@@ -35,7 +32,7 @@ void onNotFound(AsyncWebServerRequest *request) {
     request->send(404, "text/plain", "Not found");
 }
 
-// Обработчики API
+// --- Обработчики API ---
 void handle_get_settings(AsyncWebServerRequest *request) {
     AsyncResponseStream *response = request->beginResponseStream("application/json");
     DynamicJsonDocument doc(2048);
@@ -118,22 +115,110 @@ void handle_post_settings(AsyncWebServerRequest *request, uint8_t *data, size_t 
     }
 }
 
+void handle_api_action(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+    if (index + len != total) return;
+    
+    DynamicJsonDocument doc(256);
+    if (deserializeJson(doc, data, len)) {
+        request->send(400, "text/plain", "Invalid JSON");
+        return;
+    }
+
+    const char* action = doc["action"];
+    if (strcmp(action, "toggleMute") == 0) {
+        if (xSemaphoreTake(xStateMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+            g_app_state.settings.is_muted = !g_app_state.settings.is_muted;
+            xSemaphoreGive(xStateMutex);
+        }
+        settings_save();
+        request->send(200, "text/plain", "OK");
+    } else if (strcmp(action, "toggleStream") == 0) {
+        if (xSemaphoreTake(xStateMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+            g_app_state.settings.stream_active = !g_app_state.settings.stream_active;
+            xSemaphoreGive(xStateMutex);
+        }
+        settings_save();
+        request->send(200, "text/plain", "OK");
+    } else {
+        request->send(400, "text/plain", "Unknown action");
+    }
+}
+
+
+void handle_snapshot(AsyncWebServerRequest *request) {
+    camera_fb_t *fb = camera_get_one_frame();
+    if (!fb) {
+        request->send(503, "text/plain", "Camera not ready");
+        return;
+    }
+    
+    request->send_P(200, "image/jpeg", (const uint8_t *)fb->buf, fb->len);
+    esp_camera_fb_return(fb);
+}
+
+void handle_stream(AsyncWebServerRequest *request) {
+    AsyncResponseStream *response = request->beginResponseStream("multipart/x-mixed-replace;boundary=123456789000000000000987654321");
+    
+    // --- Клиент подключился ---
+    stream_clients_count++;
+    if (stream_clients_count == 1) {
+        xEventGroupSetBits(xAppEventGroup, CAM_STREAM_REQUEST_BIT); // Просим включить камеру
+    }
+
+    // --- Клиент отключился ---
+    request->onDisconnect([response]() {
+        stream_clients_count--;
+        if (stream_clients_count == 0) {
+            xEventGroupClearBits(xAppEventGroup, CAM_STREAM_REQUEST_BIT); // Просим выключить камеру
+        }
+        delete response; // Очищаем память
+    });
+
+    // --- Отправляем кадры ---
+    while(true) {
+        if(stream_clients_count == 0) break; // Все клиенты отключились
+        
+        camera_fb_t * fb = camera_get_one_frame();
+        if (!fb) {
+            vTaskDelay(pdMS_TO_TICKS(100)); // Камера еще не готова, ждем
+            continue;
+        }
+
+        response->print("--123456789000000000000987654321\r\n");
+        response->print("Content-Type: image/jpeg\r\n");
+        response->print("Content-Length: ");
+        response->print(fb->len);
+        response->print("\r\n\r\n");
+        response->write(fb->buf, fb->len);
+        response->print("\r\n");
+        
+        esp_camera_fb_return(fb);
+
+        // Даем шанс другим задачам и контролируем FPS
+        vTaskDelay(pdMS_TO_TICKS(66)); // ~15 FPS
+    }
+}
+
 // --- Инициализация ---
 void init_web_server() {
     ws.onEvent(onWsEvent);
     server.addHandler(&ws);
 
-    // --- Сначала регистрируем API и будущие обработчики ---
+    // --- API и обработчики ---
     server.on("/api/settings", HTTP_GET, handle_get_settings);
-    server.on("/api/settings", HTTP_POST, 
-        [](AsyncWebServerRequest *request){ request->send(200); },
-        NULL,
-        handle_post_settings
+    server.on(
+        "/api/settings", HTTP_POST, 
+        [](AsyncWebServerRequest *request){ request->send(200); }, NULL, handle_post_settings
     );
-    // Здесь в будущем будут /api/action, /stream, /api/snapshot
-
-    server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html").setCacheControl("max-age=600"); // <-- ПЕРЕМЕСТИЛИ ЭТУ СТРОКУ ВНИЗ
+    server.on(
+        "/api/action", HTTP_POST,
+        [](AsyncWebServerRequest *request){}, NULL, handle_api_action
+    );
+    server.on("/api/snapshot", HTTP_GET, handle_snapshot);
+    server.on("/stream", HTTP_GET, handle_stream);
     
+    // --- Статика и 404 ---
+    server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html").setCacheControl("max-age=600");
     server.onNotFound(onNotFound);
 
     server.begin();
