@@ -36,9 +36,9 @@ void settings_init() {
             DeserializationError error = deserializeJson(doc, file);
             if (!error) {
                 // ЗАМЕНИТЬ старый блок загрузки на этот полный блок
-                g_app_state.settings.thresh_yellow = doc["thresh_yellow"] | 2.0;
-                g_app_state.settings.thresh_orange = doc["thresh_orange"] | 1.0;
-                g_app_state.settings.thresh_red = doc["thresh_red"] | 0.5;
+                g_app_state.settings.thresh_yellow = doc["thresh_yellow"] | 2.0f;
+                g_app_state.settings.thresh_orange = doc["thresh_orange"] | 1.0f;
+                g_app_state.settings.thresh_red = doc["thresh_red"] | 0.5f;
                 g_app_state.settings.bpm_min = doc["bpm_min"] | 0;
                 g_app_state.settings.bpm_max = doc["bpm_max"] | 300;
                 g_app_state.settings.auto_start = doc["auto_start"] | true;

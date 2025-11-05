@@ -43,8 +43,11 @@ void camera_task(void *pvParameters) {
     config.grab_mode = CAMERA_GRAB_LATEST; // УЛУЧШЕНО
     config.fb_count = 2;
 
-    for (;;) {
+ for (;;) {
+        // Ждем, пока веб-сервер не установит бит запроса стрима
+        Serial.println("[CameraTask] Waiting for stream request...");
         xEventGroupWaitBits(xAppEventGroup, CAM_STREAM_REQUEST_BIT, pdFALSE, pdFALSE, portMAX_DELAY);
+        Serial.println("[CameraTask] Stream request received, initializing camera...");
 
         bool flip_h, flip_v;
         if (xSemaphoreTake(xStateMutex, portMAX_DELAY) == pdTRUE) {
@@ -58,36 +61,42 @@ void camera_task(void *pvParameters) {
 
         esp_err_t err = esp_camera_init(&config);
         if (err != ESP_OK) {
-            Serial.printf("Camera init failed with error 0x%x\n", err);
-            xEventGroupClearBits(xAppEventGroup, CAM_STREAM_REQUEST_BIT);
-            vTaskDelay(pdMS_TO_TICKS(1000));
-            continue;
+            // --- УЛУЧШЕННОЕ ЛОГИРОВАНИЕ ОШИБКИ ---
+            Serial.printf("[CameraTask] CRITICAL: Camera init failed with error 0x%x (%s)\n", err, esp_err_to_name(err));
+            Serial.println("[CameraTask] This often happens if PSRAM is not enabled, or the camera is not connected properly.");
+            
+            // Сбрасываем флаг, чтобы handle_stream не ждал вечно
+            xEventGroupClearBits(xAppEventGroup, CAM_STREAM_REQUEST_BIT); 
+            
+            vTaskDelay(pdMS_TO_TICKS(2000)); // Ждем 2 секунды перед следующей попыткой
+            continue; // Возвращаемся в начало цикла ожидания
         }
         
-        // --- Применяем дополнительные настройки сенсора ---
         sensor_t *s = esp_camera_sensor_get();
         if (s) {
-            s->set_hmirror(s, flip_h ? 1 : 0); // УЛУЧШЕНО
-            s->set_vflip(s, flip_v ? 1 : 0);   // УЛУЧШЕНО
+            s->set_hmirror(s, flip_h ? 1 : 0);
+            s->set_vflip(s, flip_v ? 1 : 0);
         }
         
-        Serial.println("Camera initialized.");
+        Serial.println("[CameraTask] Camera initialized successfully.");
         
         if (xSemaphoreTake(xStateMutex, portMAX_DELAY) == pdTRUE) {
             g_app_state.is_camera_initialized = true;
             xSemaphoreGive(xStateMutex);
         }
 
+        Serial.println("[CameraTask] Camera is active, waiting for stream to stop...");
         while (xEventGroupGetBits(xAppEventGroup) & CAM_STREAM_REQUEST_BIT) {
             vTaskDelay(pdMS_TO_TICKS(100));
         }
 
+        Serial.println("[CameraTask] Stream request stopped, de-initializing camera...");
         esp_camera_deinit();
         if (xSemaphoreTake(xStateMutex, portMAX_DELAY) == pdTRUE) {
             g_app_state.is_camera_initialized = false;
             xSemaphoreGive(xStateMutex);
         }
-        Serial.println("Camera de-initialized.");
+        Serial.println("[CameraTask] Camera de-initialized.");
     }
 }
 

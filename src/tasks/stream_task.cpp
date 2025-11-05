@@ -16,9 +16,6 @@ void stream_task(void *pvParameters)
 
     for (;;)
     {
-        // Контролируем FPS здесь
-        vTaskDelay(pdMS_TO_TICKS(66)); // ~15 FPS
-
         // Если нет клиентов, просто отдыхаем
         if (g_stream_clients.empty())
         {
@@ -49,5 +46,8 @@ void stream_task(void *pvParameters)
         }
 
         esp_camera_fb_return(fb);
+
+                // Контролируем FPS здесь
+        vTaskDelay(pdMS_TO_TICKS(66)); // ~15 FPS
     }
 }

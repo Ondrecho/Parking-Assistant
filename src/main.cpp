@@ -16,35 +16,25 @@ SemaphoreHandle_t xStateMutex = NULL;
 EventGroupHandle_t xAppEventGroup = NULL;
 
 
-// Новая задача для отправки данных по WebSocket
 void websocket_broadcast_task(void *pvParameters) {
     (void)pvParameters;
-    DynamicJsonDocument doc(128);
-    char buffer[100];
+    DynamicJsonDocument doc(128); // Помним, что JsonDocument абстрактный
 
     for (;;) {
-        // Ждем 100 мс между отправками (10 Гц)
         vTaskDelay(pdMS_TO_TICKS(100));
 
-        // Если нет подключенных клиентов, ничего не делаем
-        if (get_ws_clients_count() == 0) {
-            continue;
-        }
+        if (get_ws_clients_count() == 0) continue;
 
-        // Захватываем мьютекс для безопасного чтения данных
         if (xSemaphoreTake(xStateMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
             JsonArray sensors = doc["sensors"].to<JsonArray>();
             sensors.clear();
             for (int i = 0; i < NUM_SENSORS; ++i) {
-                // Округляем до 2 знаков после запятой
-                sensors.add(round(g_app_state.sensor_distances[i] / 10.0) / 10.0);
+                // Преобразуем метры в метры, просто для примера
+                sensors.add(g_app_state.sensor_distances[i]); 
             }
-
-            // Освобождаем мьютекс
             xSemaphoreGive(xStateMutex);
 
-            size_t len = serializeJson(doc, buffer);
-            broadcast_ws_text(buffer, len);
+            broadcast_ws_json(doc);
         }
     }
 }

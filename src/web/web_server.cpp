@@ -19,7 +19,22 @@ volatile int stream_clients_count = 0;
 
 // --- Вспомогательные функции ---
 int get_ws_clients_count() { return ws.count(); }
-void broadcast_ws_text(const char* data, size_t len) { ws.textAll(data, len); }
+
+void broadcast_ws_json(JsonDocument& doc) {
+    // Получаем список всех подключенных клиентов
+    auto clients = ws.getClients(); 
+    
+    // Итерируемся по всем клиентам
+    for(auto client : clients) {
+        // Проверяем, что клиент жив и может принимать данные
+        if(client && client->status() == WS_CONNECTED && client->canSend()) {
+            // Сериализуем JSON и отправляем только этому клиенту
+            String buffer;
+            serializeJson(doc, buffer);
+            client->text(buffer);
+        }
+    }
+}
 
 // --- Обработчики ---
 
