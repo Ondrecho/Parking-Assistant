@@ -15,7 +15,6 @@ extern SemaphoreHandle_t xStreamMutex;
 // --- Глобальные объекты сервера ---
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
-volatile int stream_clients_count = 0;
 
 // --- Вспомогательные функции ---
 int get_ws_clients_count() { return ws.count(); }
@@ -189,35 +188,32 @@ void handle_snapshot(AsyncWebServerRequest *request) {
 void handle_stream(AsyncWebServerRequest *request) {
     AsyncResponseStream *response = request->beginResponseStream("multipart/x-mixed-replace;boundary=123456789000000000000987654321");
     
-    // --- Клиент подключился ---
-    stream_clients_count++;
-    if (stream_clients_count == 1) {
-        xEventGroupSetBits(xAppEventGroup, CAM_STREAM_REQUEST_BIT); // Просим включить камеру
-    }
-
+    // --- Клиент подключился (АТОМАРНАЯ ОПЕРАЦИЯ) ---
     if (xSemaphoreTake(xStreamMutex, portMAX_DELAY) == pdTRUE) {
         g_stream_clients.push_back(response);
+        // Если это первый клиент, просим включить камеру
+        if (g_stream_clients.size() == 1) {
+            xEventGroupSetBits(xAppEventGroup, CAM_STREAM_REQUEST_BIT);
+        }
         xSemaphoreGive(xStreamMutex);
     }
     
-    // --- Клиент отключился ---
+    // --- Клиент отключился (АТОМАРНАЯ ОПЕРАЦИЯ) ---
     request->onDisconnect([response]() {
-        stream_clients_count--;
-        if (stream_clients_count == 0) {
-            xEventGroupClearBits(xAppEventGroup, CAM_STREAM_REQUEST_BIT); // Просим выключить камеру
-        }
-        
         if (xSemaphoreTake(xStreamMutex, portMAX_DELAY) == pdTRUE) {
-            // Находим и удаляем клиента из списка
+            // Находим и удаляем клиента
             for (auto it = g_stream_clients.begin(); it != g_stream_clients.end(); ++it) {
                 if (*it == response) {
                     g_stream_clients.erase(it);
                     break;
                 }
             }
+            // Если клиентов не осталось, просим выключить камеру
+            if (g_stream_clients.empty()) {
+                xEventGroupClearBits(xAppEventGroup, CAM_STREAM_REQUEST_BIT);
+            }
             xSemaphoreGive(xStreamMutex);
         }
-        // ВАЖНО: AsyncWebServer сам удалит объект `response`
     });
 }
 

@@ -4,27 +4,21 @@
 #include "config.h"
 #include "state.h"
 
-// --- Вспомогательная функция ---
-framesize_t string_to_framesize(const char *str)
-{
-    if (strcmp(str, "QQVGA") == 0)
-        return FRAMESIZE_QQVGA;
-    if (strcmp(str, "QVGA") == 0)
-        return FRAMESIZE_QVGA;
-    if (strcmp(str, "VGA") == 0)
-        return FRAMESIZE_VGA;
-    if (strcmp(str, "SVGA") == 0)
-        return FRAMESIZE_SVGA;
-    if (strcmp(str, "XGA") == 0)
-        return FRAMESIZE_XGA;
-    return FRAMESIZE_VGA; // По умолчанию
+// --- Вспомогательная функция (остается без изменений) ---
+framesize_t string_to_framesize(const char* str) {
+    if (strcmp(str, "QQVGA") == 0) return FRAMESIZE_QQVGA;
+    if (strcmp(str, "QVGA") == 0) return FRAMESIZE_QVGA;
+    if (strcmp(str, "VGA") == 0) return FRAMESIZE_VGA;
+    if (strcmp(str, "SVGA") == 0) return FRAMESIZE_SVGA;
+    if (strcmp(str, "XGA") == 0) return FRAMESIZE_XGA;
+    return FRAMESIZE_VGA;
 }
 
-// --- Основная функция задачи ---
-void camera_task(void *pvParameters)
-{
+// --- Полная версия camera_task ---
+void camera_task(void *pvParameters) {
     (void)pvParameters;
-
+    
+    // --- Полная конфигурация камеры ---
     camera_config_t config;
     config.ledc_channel = LEDC_CHANNEL_0;
     config.ledc_timer = LEDC_TIMER_0;
@@ -40,25 +34,23 @@ void camera_task(void *pvParameters)
     config.pin_pclk = CAM_PIN_PCLK;
     config.pin_vsync = CAM_PIN_VSYNC;
     config.pin_href = CAM_PIN_HREF;
-    config.pin_sccb_sda = CAM_PIN_SIOD; // ИСПРАВЛЕНО
-    config.pin_sccb_scl = CAM_PIN_SIOC; // ИСПРАВЛЕНО
+    config.pin_sccb_sda = CAM_PIN_SIOD;
+    config.pin_sccb_scl = CAM_PIN_SIOC;
     config.pin_pwdn = CAM_PIN_PWDN;
     config.pin_reset = CAM_PIN_RESET;
     config.xclk_freq_hz = 20000000;
     config.pixel_format = PIXFORMAT_JPEG;
     config.fb_location = CAMERA_FB_IN_PSRAM;
-    config.grab_mode = CAMERA_GRAB_LATEST; // УЛУЧШЕНО
+    config.grab_mode = CAMERA_GRAB_LATEST;
     config.fb_count = 2;
 
     for (;;) {
-        // Ждем, пока веб-сервер не установит бит запроса стрима
-        Serial.println("[CameraTask] Waiting for stream request...");
+        // ШАГ 1: Ждем запроса от веб-сервера
         xEventGroupWaitBits(xAppEventGroup, CAM_STREAM_REQUEST_BIT, pdFALSE, pdFALSE, portMAX_DELAY);
-        Serial.println("[CameraTask] Stream request received, initializing camera...");
 
+        // ШАГ 2: Загружаем актуальные настройки перед инициализацией
         bool flip_h, flip_v;
-        if (xSemaphoreTake(xStateMutex, portMAX_DELAY) == pdTRUE)
-        {
+        if (xSemaphoreTake(xStateMutex, portMAX_DELAY) == pdTRUE) {
             config.frame_size = string_to_framesize(g_app_state.settings.resolution);
             config.jpeg_quality = g_app_state.settings.jpeg_quality;
             flip_h = g_app_state.settings.flip_h;
@@ -67,45 +59,42 @@ void camera_task(void *pvParameters)
             xSemaphoreGive(xStateMutex);
         }
 
+        // ШАГ 3: Инициализируем камеру
         esp_err_t err = esp_camera_init(&config);
-        if (err != ESP_OK)
-        {
-            // --- УЛУЧШЕННОЕ ЛОГИРОВАНИЕ ОШИБКИ ---
+        if (err != ESP_OK) {
             Serial.printf("[CameraTask] CRITICAL: Camera init failed with error 0x%x (%s)\n", err, esp_err_to_name(err));
-            Serial.println("[CameraTask] This often happens if PSRAM is not enabled, or the camera is not connected properly.");
-
-            // Сбрасываем флаг, чтобы handle_stream не ждал вечно
-            xEventGroupClearBits(xAppEventGroup, CAM_STREAM_REQUEST_BIT);
-
-            vTaskDelay(pdMS_TO_TICKS(2000)); // Ждем 2 секунды перед следующей попыткой
-            continue;                        // Возвращаемся в начало цикла ожидания
+            xEventGroupClearBits(xAppEventGroup, CAM_STREAM_REQUEST_BIT); // Сбрасываем запрос, т.к. инициализация провалена
+            vTaskDelay(pdMS_TO_TICKS(2000));
+            continue;
         }
-
+        
+        // Применяем настройки отражения
         sensor_t *s = esp_camera_sensor_get();
-        if (s)
-        {
+        if (s) {
             s->set_hmirror(s, flip_h ? 1 : 0);
             s->set_vflip(s, flip_v ? 1 : 0);
         }
-
-        Serial.println("[CameraTask] Camera initialized successfully.");
-
-        if (xSemaphoreTake(xStateMutex, portMAX_DELAY) == pdTRUE)
-        {
+        
+        // Обновляем глобальное состояние
+        if (xSemaphoreTake(xStateMutex, portMAX_DELAY) == pdTRUE) {
             g_app_state.is_camera_initialized = true;
             xSemaphoreGive(xStateMutex);
         }
 
-        Serial.println("[CameraTask] Camera is active, waiting for stream to stop...");
-        while (xEventGroupGetBits(xAppEventGroup) & CAM_STREAM_REQUEST_BIT)
-        {
+        // ШАГ 4: Подаем сигнал "ГОТОВО" другим задачам
+        xEventGroupSetBits(xAppEventGroup, CAM_INITIALIZED_BIT);
+        Serial.println("[CameraTask] Camera initialized. Signal sent.");
+
+        // ШАГ 5: Ждем, пока веб-сервер не отменит запрос
+        while (xEventGroupGetBits(xAppEventGroup) & CAM_STREAM_REQUEST_BIT) {
             vTaskDelay(pdMS_TO_TICKS(100));
         }
 
-        Serial.println("[CameraTask] Stream request stopped, de-initializing camera...");
+        // ШАГ 6: Убираем сигнал "ГОТОВО" и деинициализируем камеру
+        xEventGroupClearBits(xAppEventGroup, CAM_INITIALIZED_BIT);
         esp_camera_deinit();
-        if (xSemaphoreTake(xStateMutex, portMAX_DELAY) == pdTRUE)
-        {
+
+        if (xSemaphoreTake(xStateMutex, portMAX_DELAY) == pdTRUE) {
             g_app_state.is_camera_initialized = false;
             xSemaphoreGive(xStateMutex);
         }
@@ -113,17 +102,12 @@ void camera_task(void *pvParameters)
     }
 }
 
-camera_fb_t *camera_get_one_frame()
-{
+camera_fb_t *camera_get_one_frame(){
     bool is_cam_init = false;
-    if (xSemaphoreTake(xStateMutex, pdMS_TO_TICKS(100)) == pdTRUE)
-    {
+    if (xSemaphoreTake(xStateMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         is_cam_init = g_app_state.is_camera_initialized;
         xSemaphoreGive(xStateMutex);
     }
-    if (!is_cam_init)
-    {
-        return NULL;
-    }
+    if (!is_cam_init) { return NULL; }
     return esp_camera_fb_get();
 }
