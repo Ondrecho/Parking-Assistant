@@ -75,8 +75,8 @@ void setup() {
     }
     g_app_state.is_camera_initialized = false;
 
-    WiFi.mode(WIFI_AP);
-    WiFi.softAP(WIFI_AP_SSID, WIFI_AP_PASS);
+   WiFi.mode(WIFI_AP);
+    WiFi.softAP(g_app_state.settings.wifi_ssid, g_app_state.settings.wifi_pass);
     Serial.print("AP IP address: ");
     Serial.println(WiFi.softAPIP());
 
