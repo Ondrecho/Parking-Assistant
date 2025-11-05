@@ -2,13 +2,13 @@
 #include <WiFi.h>
 #include <LittleFS.h>
 #include <ArduinoJson.h>
-
 #include "config.h"
 #include "state.h"
 #include "tasks/camera_task.h"
 #include "tasks/sensors_task.h"
 #include "web/web_server.h"
-#include "settings_manager.h" // <-- Добавили
+#include "settings_manager.h"
+#include "tasks/stream_task.h"
 
 // Глобальные определения
 AppState g_app_state;
@@ -84,8 +84,8 @@ void setup() {
 
     xTaskCreatePinnedToCore(sensors_task, "SensorsTask", 4096, NULL, 5, NULL, 1);
     xTaskCreatePinnedToCore(camera_task, "CameraTask", 4096, NULL, 5, NULL, 0);
-    // Создаем новую задачу для WebSocket
-    xTaskCreatePinnedToCore(websocket_broadcast_task, "WsBroadcastTask", 4096, NULL, 3, NULL, 1); // <-- Добавили
+    xTaskCreatePinnedToCore(websocket_broadcast_task, "WsBroadcastTask", 4096, NULL, 3, NULL, 1);
+    xTaskCreatePinnedToCore(stream_task, "StreamTask", 4096, NULL, 4, NULL, 1);
     
     Serial.println("Setup complete. Tasks are running.");
 }

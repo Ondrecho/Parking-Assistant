@@ -2,15 +2,20 @@
 #include "ESPAsyncWebServer.h"
 #include <LittleFS.h>
 #include <ArduinoJson.h>
+#include <vector>
 #include "state.h"
 #include "config.h"
 #include "settings_manager.h"
-#include "tasks/camera_task.h" // <-- Добавили
+#include "tasks/camera_task.h"
+
+// --- Объявляем внешние переменные из stream_task.cpp ---
+extern std::vector<AsyncResponseStream*> g_stream_clients;
+extern SemaphoreHandle_t xStreamMutex;
 
 // --- Глобальные объекты сервера ---
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
-volatile int stream_clients_count = 0; // Счетчик активных клиентов стрима
+volatile int stream_clients_count = 0;
 
 // --- Вспомогательные функции ---
 int get_ws_clients_count() { return ws.count(); }
@@ -175,38 +180,30 @@ void handle_stream(AsyncWebServerRequest *request) {
         xEventGroupSetBits(xAppEventGroup, CAM_STREAM_REQUEST_BIT); // Просим включить камеру
     }
 
+    if (xSemaphoreTake(xStreamMutex, portMAX_DELAY) == pdTRUE) {
+        g_stream_clients.push_back(response);
+        xSemaphoreGive(xStreamMutex);
+    }
+    
     // --- Клиент отключился ---
     request->onDisconnect([response]() {
         stream_clients_count--;
         if (stream_clients_count == 0) {
             xEventGroupClearBits(xAppEventGroup, CAM_STREAM_REQUEST_BIT); // Просим выключить камеру
         }
-        delete response; // Очищаем память
-    });
-
-    // --- Отправляем кадры ---
-    while(true) {
-        if(stream_clients_count == 0) break; // Все клиенты отключились
         
-        camera_fb_t * fb = camera_get_one_frame();
-        if (!fb) {
-            vTaskDelay(pdMS_TO_TICKS(100)); // Камера еще не готова, ждем
-            continue;
+        if (xSemaphoreTake(xStreamMutex, portMAX_DELAY) == pdTRUE) {
+            // Находим и удаляем клиента из списка
+            for (auto it = g_stream_clients.begin(); it != g_stream_clients.end(); ++it) {
+                if (*it == response) {
+                    g_stream_clients.erase(it);
+                    break;
+                }
+            }
+            xSemaphoreGive(xStreamMutex);
         }
-
-        response->print("--123456789000000000000987654321\r\n");
-        response->print("Content-Type: image/jpeg\r\n");
-        response->print("Content-Length: ");
-        response->print(fb->len);
-        response->print("\r\n\r\n");
-        response->write(fb->buf, fb->len);
-        response->print("\r\n");
-        
-        esp_camera_fb_return(fb);
-
-        // Даем шанс другим задачам и контролируем FPS
-        vTaskDelay(pdMS_TO_TICKS(66)); // ~15 FPS
-    }
+        // ВАЖНО: AsyncWebServer сам удалит объект `response`
+    });
 }
 
 // --- Инициализация ---
