@@ -119,3 +119,21 @@ bool settings_save() {
     Serial.println("Settings saved successfully.");
     return true;
 }
+
+void settings_reset_to_default() {
+    Serial.println("Resetting settings to default values.");
+    
+    // Блокируем мьютекс, чтобы безопасно изменить глобальное состояние
+    if (xSemaphoreTake(xStateMutex, portMAX_DELAY) == pdTRUE) {
+        
+        // Загружаем дефолтные значения в g_app_state
+        load_default_settings(); 
+        
+        xSemaphoreGive(xStateMutex);
+        
+        // Сохраняем новые (дефолтные) настройки в файл settings.json
+        settings_save(); 
+    } else {
+        Serial.println("Failed to take mutex for settings reset.");
+    }
+}

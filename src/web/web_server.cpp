@@ -125,6 +125,11 @@ void handle_api_action(AsyncWebServerRequest *request, uint8_t *data, size_t len
     }
 
     const char* action = doc["action"];
+    if (!action) {
+        request->send(400, "text/plain", "Action not specified");
+        return;
+    }
+
     if (strcmp(action, "toggleMute") == 0) {
         if (xSemaphoreTake(xStateMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
             g_app_state.settings.is_muted = !g_app_state.settings.is_muted;
@@ -139,6 +144,11 @@ void handle_api_action(AsyncWebServerRequest *request, uint8_t *data, size_t len
         }
         settings_save();
         request->send(200, "text/plain", "OK");
+    
+    } else if (strcmp(action, "resetSettings") == 0) {
+        settings_reset_to_default();
+        request->send(200, "text/plain", "OK");
+
     } else {
         request->send(400, "text/plain", "Unknown action");
     }

@@ -5,3 +5,6 @@ void settings_init();
 
 // Сохранение текущих настроек из g_app_state в файл.
 bool settings_save();
+
+// Сброс настроек к значениям по умолчанию и их сохранение.
+void settings_reset_to_default(); 
