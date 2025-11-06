@@ -4,7 +4,7 @@
 #include "config.h"
 #include "state.h"
 
-// --- Вспомогательная функция (остается без изменений) ---
+// Вспомогательная функция для преобразования строки в framesize_t
 framesize_t string_to_framesize(const char* str) {
     if (strcmp(str, "QQVGA") == 0) return FRAMESIZE_QQVGA;
     if (strcmp(str, "QVGA") == 0) return FRAMESIZE_QVGA;
@@ -18,7 +18,7 @@ framesize_t string_to_framesize(const char* str) {
 void camera_task(void *pvParameters) {
     (void)pvParameters;
     
-    // --- Полная конфигурация камеры ---
+    // Конфигурация камеры
     camera_config_t config;
     config.ledc_channel = LEDC_CHANNEL_0;
     config.ledc_timer = LEDC_TIMER_0;
@@ -45,10 +45,10 @@ void camera_task(void *pvParameters) {
     config.fb_count = 2;
 
     for (;;) {
-        // ШАГ 1: Ждем запроса от веб-сервера
+        // 1. Ждем запроса от веб-сервера на включение
         xEventGroupWaitBits(xAppEventGroup, CAM_STREAM_REQUEST_BIT, pdFALSE, pdFALSE, portMAX_DELAY);
 
-        // ШАГ 2: Загружаем актуальные настройки перед инициализацией
+        // 2. Загружаем актуальные настройки
         bool flip_h, flip_v;
         if (xSemaphoreTake(xStateMutex, portMAX_DELAY) == pdTRUE) {
             config.frame_size = string_to_framesize(g_app_state.settings.resolution);
@@ -59,38 +59,37 @@ void camera_task(void *pvParameters) {
             xSemaphoreGive(xStateMutex);
         }
 
-        // ШАГ 3: Инициализируем камеру
+        // 3. Инициализируем камеру
         esp_err_t err = esp_camera_init(&config);
         if (err != ESP_OK) {
             Serial.printf("[CameraTask] CRITICAL: Camera init failed with error 0x%x (%s)\n", err, esp_err_to_name(err));
-            xEventGroupClearBits(xAppEventGroup, CAM_STREAM_REQUEST_BIT); // Сбрасываем запрос, т.к. инициализация провалена
+            xEventGroupClearBits(xAppEventGroup, CAM_STREAM_REQUEST_BIT);
             vTaskDelay(pdMS_TO_TICKS(2000));
             continue;
         }
         
-        // Применяем настройки отражения
+        // Применяем настройки к сенсору
         sensor_t *s = esp_camera_sensor_get();
         if (s) {
             s->set_hmirror(s, flip_h ? 1 : 0);
             s->set_vflip(s, flip_v ? 1 : 0);
         }
         
-        // Обновляем глобальное состояние
         if (xSemaphoreTake(xStateMutex, portMAX_DELAY) == pdTRUE) {
             g_app_state.is_camera_initialized = true;
             xSemaphoreGive(xStateMutex);
         }
 
-        // ШАГ 4: Подаем сигнал "ГОТОВО" другим задачам
+        // 4. Подаем сигнал "ГОТОВО" другим задачам
         xEventGroupSetBits(xAppEventGroup, CAM_INITIALIZED_BIT);
         Serial.println("[CameraTask] Camera initialized. Signal sent.");
 
-        // ШАГ 5: Ждем, пока веб-сервер не отменит запрос
+        // 5. Ждем, пока веб-сервер не отменит запрос
         while (xEventGroupGetBits(xAppEventGroup) & CAM_STREAM_REQUEST_BIT) {
             vTaskDelay(pdMS_TO_TICKS(100));
         }
 
-        // ШАГ 6: Убираем сигнал "ГОТОВО" и деинициализируем камеру
+        // 6. Убираем сигнал "ГОТОВО" и деинициализируем камеру
         xEventGroupClearBits(xAppEventGroup, CAM_INITIALIZED_BIT);
         esp_camera_deinit();
 
@@ -102,7 +101,7 @@ void camera_task(void *pvParameters) {
     }
 }
 
-camera_fb_t *camera_get_one_frame(){
+camera_fb_t* camera_get_one_frame() {
     bool is_cam_init = false;
     if (xSemaphoreTake(xStateMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         is_cam_init = g_app_state.is_camera_initialized;
