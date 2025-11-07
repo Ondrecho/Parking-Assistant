@@ -37,7 +37,6 @@ void camera_task(void *pvParameters) {
     config.pin_sccb_scl = CAM_PIN_SIOC;
     config.pin_pwdn = CAM_PIN_PWDN;
     config.pin_reset = CAM_PIN_RESET;
-    config.xclk_freq_hz = 24000000;
     config.pixel_format = PIXFORMAT_JPEG;
     config.fb_location = CAMERA_FB_IN_PSRAM;
     config.grab_mode = CAMERA_GRAB_LATEST;
@@ -50,6 +49,7 @@ void camera_task(void *pvParameters) {
         if (xSemaphoreTake(xStateMutex, portMAX_DELAY) == pdTRUE) {
             config.frame_size = string_to_framesize(g_app_state.settings.resolution);
             config.jpeg_quality = g_app_state.settings.jpeg_quality;
+            config.xclk_freq_hz = g_app_state.settings.xclk_freq * 1000000;
             flip_h = g_app_state.settings.flip_h;
             flip_v = g_app_state.settings.flip_v;
             g_app_state.is_camera_initialized = false;

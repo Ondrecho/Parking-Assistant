@@ -5,7 +5,8 @@
 #include "config.h"
 #include "esp_camera.h"
 
-void load_default_settings() {
+void load_default_settings()
+{
     g_app_state.settings.thresh_yellow = 200;
     g_app_state.settings.thresh_orange = 100;
     g_app_state.settings.thresh_red = 50;
@@ -14,27 +15,33 @@ void load_default_settings() {
     g_app_state.settings.auto_start = true;
     g_app_state.settings.show_grid = true;
     g_app_state.settings.cam_angle = 45;
-    g_app_state.settings.grid_opacity = 0.8;
+    g_app_state.settings.grid_opacity = 80;
     g_app_state.settings.grid_offset_x = 0;
     g_app_state.settings.grid_offset_y = 0;
     g_app_state.settings.grid_offset_z = 0;
     strlcpy(g_app_state.settings.resolution, "XGA", sizeof(g_app_state.settings.resolution));
-    g_app_state.settings.jpeg_quality = 12;
+    g_app_state.settings.jpeg_quality = 20;
     g_app_state.settings.flip_h = true;
     g_app_state.settings.flip_v = false;
     g_app_state.settings.is_muted = false;
     g_app_state.settings.stream_active = true;
+    g_app_state.settings.rotation = 90;
+    g_app_state.settings.xclk_freq = 22;
     strncpy(g_app_state.settings.wifi_ssid, WIFI_AP_SSID, sizeof(g_app_state.settings.wifi_ssid));
     strncpy(g_app_state.settings.wifi_pass, WIFI_AP_PASS, sizeof(g_app_state.settings.wifi_pass));
 }
 
-void settings_init() {
-    if (LittleFS.exists("/settings.json")) {
+void settings_init()
+{
+    if (LittleFS.exists("/settings.json"))
+    {
         File file = LittleFS.open("/settings.json", "r");
-        if (file) {
+        if (file)
+        {
             DynamicJsonDocument doc(2048);
             DeserializationError error = deserializeJson(doc, file);
-            if (!error) {
+            if (!error)
+            {
                 // ЗАМЕНИТЬ старый блок загрузки на этот полный блок
                 g_app_state.settings.thresh_yellow = doc["thresh_yellow"] | 200;
                 g_app_state.settings.thresh_orange = doc["thresh_orange"] | 100;
@@ -44,41 +51,49 @@ void settings_init() {
                 g_app_state.settings.auto_start = doc["auto_start"] | true;
                 g_app_state.settings.show_grid = doc["show_grid"] | true;
                 g_app_state.settings.cam_angle = doc["cam_angle"] | 45;
-                g_app_state.settings.grid_opacity = doc["grid_opacity"] | 0.8;
+                g_app_state.settings.grid_opacity = doc["grid_opacity"] | 80;
                 g_app_state.settings.grid_offset_x = doc["grid_offset_x"] | 0;
                 g_app_state.settings.grid_offset_y = doc["grid_offset_y"] | 0;
                 g_app_state.settings.grid_offset_z = doc["grid_offset_z"] | 0;
                 strlcpy(g_app_state.settings.resolution, doc["resolution"] | "XGA", sizeof(g_app_state.settings.resolution));
-                g_app_state.settings.jpeg_quality = doc["jpeg_quality"] | 12;
+                g_app_state.settings.jpeg_quality = doc["jpeg_quality"] | 20;
                 g_app_state.settings.flip_h = doc["flip_h"] | true;
                 g_app_state.settings.flip_v = doc["flip_v"] | false;
                 g_app_state.settings.is_muted = doc["is_muted"] | false;
                 g_app_state.settings.stream_active = doc["stream_active"] | true;
+                g_app_state.settings.rotation = doc["rotation"] | 90;
+                g_app_state.settings.xclk_freq = doc["xclk_freq"] | 22;
                 strlcpy(g_app_state.settings.wifi_ssid, doc["wifi_ssid"] | WIFI_AP_SSID, sizeof(g_app_state.settings.wifi_ssid));
                 strlcpy(g_app_state.settings.wifi_pass, doc["wifi_pass"] | WIFI_AP_PASS, sizeof(g_app_state.settings.wifi_pass));
                 Serial.println("Settings loaded from file.");
-            } else {
+            }
+            else
+            {
                 Serial.println("Failed to parse settings.json, loading defaults.");
                 load_default_settings();
             }
             file.close();
         }
-    } else {
+    }
+    else
+    {
         Serial.println("settings.json not found, loading defaults and creating file.");
         load_default_settings();
         settings_save(); // Сохраняем дефолтные настройки, чтобы файл создался
     }
 }
 
-bool settings_save() {
+bool settings_save()
+{
     DynamicJsonDocument doc(2048);
 
     // Блокируем мьютекс на время чтения состояния
-    if (xSemaphoreTake(xStateMutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
+    if (xSemaphoreTake(xStateMutex, pdMS_TO_TICKS(1000)) != pdTRUE)
+    {
         Serial.println("Failed to take mutex for saving settings");
         return false;
     }
-    
+
     // Сериализуем все настройки в JSON
     doc["thresh_yellow"] = g_app_state.settings.thresh_yellow;
     doc["thresh_orange"] = g_app_state.settings.thresh_orange;
@@ -98,18 +113,22 @@ bool settings_save() {
     doc["flip_v"] = g_app_state.settings.flip_v;
     doc["is_muted"] = g_app_state.settings.is_muted;
     doc["stream_active"] = g_app_state.settings.stream_active;
+    doc["rotation"] = g_app_state.settings.rotation;   
+    doc["xclk_freq"] = g_app_state.settings.xclk_freq; 
     doc["wifi_ssid"] = g_app_state.settings.wifi_ssid;
     doc["wifi_pass"] = g_app_state.settings.wifi_pass;
 
     xSemaphoreGive(xStateMutex);
 
     File file = LittleFS.open("/settings.json", "w");
-    if (!file) {
+    if (!file)
+    {
         Serial.println("Failed to open settings.json for writing");
         return false;
     }
-    
-    if (serializeJson(doc, file) == 0) {
+
+    if (serializeJson(doc, file) == 0)
+    {
         Serial.println("Failed to write to settings.json");
         file.close();
         return false;
@@ -120,20 +139,24 @@ bool settings_save() {
     return true;
 }
 
-void settings_reset_to_default() {
+void settings_reset_to_default()
+{
     Serial.println("Resetting settings to default values.");
-    
+
     // Блокируем мьютекс, чтобы безопасно изменить глобальное состояние
-    if (xSemaphoreTake(xStateMutex, portMAX_DELAY) == pdTRUE) {
-        
+    if (xSemaphoreTake(xStateMutex, portMAX_DELAY) == pdTRUE)
+    {
+
         // Загружаем дефолтные значения в g_app_state
-        load_default_settings(); 
-        
+        load_default_settings();
+
         xSemaphoreGive(xStateMutex);
-        
+
         // Сохраняем новые (дефолтные) настройки в файл settings.json
-        settings_save(); 
-    } else {
+        settings_save();
+    }
+    else
+    {
         Serial.println("Failed to take mutex for settings reset.");
     }
 }
