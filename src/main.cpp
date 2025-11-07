@@ -16,9 +16,10 @@ AppState g_app_state;
 SemaphoreHandle_t xStateMutex = NULL;
 EventGroupHandle_t xAppEventGroup = NULL;
 SemaphoreHandle_t xCameraMutex = NULL;
-QueueHandle_t xFrameQueue = NULL;      // <--- ДОБАВЛЕНО
+QueueHandle_t xFrameQueue = NULL; // <--- ДОБАВЛЕНО
 
-void setup() {
+void setup()
+{
     Serial.begin(115200);
     delay(1000);
     Serial.println("Booting up...");
@@ -29,19 +30,22 @@ void setup() {
     // Создаем очередь для 1 указателя на буфер кадра
     xFrameQueue = xQueueCreate(1, sizeof(camera_fb_t *)); // <--- ДОБАВЛЕНО
 
-    if (!xStateMutex || !xAppEventGroup || !xCameraMutex || !xFrameQueue) { // <--- ДОБАВЛЕНО
+    if (!xStateMutex || !xAppEventGroup || !xCameraMutex || !xFrameQueue)
+    { // <--- ДОБАВЛЕНО
         Serial.println("Failed to create sync objects!");
         return;
     }
 
-    if (!LittleFS.begin(true)) {
+    if (!LittleFS.begin(true))
+    {
         Serial.println("LittleFS mount failed!");
         return;
     }
 
     settings_init();
 
-    for (int i = 0; i < NUM_SENSORS; ++i) {
+    for (int i = 0; i < NUM_SENSORS; ++i)
+    {
         g_app_state.sensor_distances[i] = 999.0;
     }
     g_app_state.is_camera_initialized = false;
@@ -57,12 +61,13 @@ void setup() {
     xTaskCreatePinnedToCore(camera_task, "CameraTask", 4096, NULL, 5, NULL, 0);
     xTaskCreatePinnedToCore(stream_task, "StreamTask", 4096, NULL, 4, NULL, 1);
     xTaskCreatePinnedToCore(broadcast_sensors_task, "WsBroadcastTask", 4096, NULL, 3, NULL, 1);
-    // Запускаем новую задачу на ядре 0
-    xTaskCreatePinnedToCore(frame_grab_task, "FrameGrabTask", 4096, NULL, 4, NULL, 0); // <--- ДОБАВЛЕНО
-    
+    xTaskCreatePinnedToCore(frame_grab_task, "FrameGrabTask", 4096, NULL, 4, NULL, 0);
+    xTaskCreatePinnedToCore(settings_save_task, "SettingsSaveTask", 4096, NULL, 2, NULL, 1); 
+
     Serial.println("Setup complete. Tasks are running.");
 }
 
-void loop() {
+void loop()
+{
     vTaskDelay(pdMS_TO_TICKS(1000));
 }
