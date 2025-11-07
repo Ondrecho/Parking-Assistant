@@ -2,61 +2,23 @@
 #include "ESPAsyncWebServer.h"
 #include <LittleFS.h>
 #include <ArduinoJson.h>
-#include <vector>
 #include "state.h"
 #include "config.h"
 #include "settings_manager.h"
 #include "tasks/camera_task.h"
+#include "websocket_manager.h"
 
-// Внешние переменные
-extern std::vector<AsyncResponseStream*> g_stream_clients;
-extern SemaphoreHandle_t xStreamMutex;
-
-// Глобальные объекты сервера
 AsyncWebServer server(80);
-AsyncWebSocket ws("/ws");
-// --- Вспомогательные функции ---
-int get_ws_clients_count() { return ws.count(); }
 
-void broadcast_ws_json(JsonDocument& doc) {
-    // Получаем список всех подключенных клиентов
-    auto clients = ws.getClients(); 
-    
-    // Итерируемся по всем клиентам
-    for(auto client : clients) {
-        // Проверяем, что клиент жив и может принимать данные
-        if(client && client->status() == WS_CONNECTED && client->canSend()) {
-            // Сериализуем JSON и отправляем только этому клиенту
-            String buffer;
-            serializeJson(doc, buffer);
-            client->text(buffer);
-        }
-    }
-}
-
-// --- Обработчики ---
-
-// Обработчик событий WebSocket
-void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len) {
-  if (type == WS_EVT_CONNECT) {
-    Serial.printf("WS client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
-  } else if (type == WS_EVT_DISCONNECT) {
-    Serial.printf("WS client #%u disconnected\n", client->id());
-}
-}
-
-// Обработчик для несуществующих страниц
 void onNotFound(AsyncWebServerRequest *request) {
     request->send(404, "text/plain", "Not found");
 }
 
-// --- Обработчики API ---
 void handle_get_settings(AsyncWebServerRequest *request) {
     AsyncResponseStream *response = request->beginResponseStream("application/json");
     DynamicJsonDocument doc(2048);
-    
+
     if (xSemaphoreTake(xStateMutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
-        // Ручная сериализация
         doc["thresh_yellow"] = g_app_state.settings.thresh_yellow;
         doc["thresh_orange"] = g_app_state.settings.thresh_orange;
         doc["thresh_red"] = g_app_state.settings.thresh_red;
@@ -88,18 +50,15 @@ void handle_get_settings(AsyncWebServerRequest *request) {
 }
 
 void handle_post_settings(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-    if (index + len != total) return; // Ждем, пока придет все тело запроса
-    
-    DynamicJsonDocument doc(2048);
-    DeserializationError error = deserializeJson(doc, data, len);
+    if (index + len != total) return;
 
-    if (error) {
+    DynamicJsonDocument doc(2048);
+    if (deserializeJson(doc, data, len)) {
         request->send(400, "text/plain", "Invalid JSON");
         return;
     }
 
     if (xSemaphoreTake(xStateMutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
-        // Десериализация с проверкой наличия ключа
         if (doc.containsKey("thresh_yellow")) g_app_state.settings.thresh_yellow = doc["thresh_yellow"];
         if (doc.containsKey("thresh_orange")) g_app_state.settings.thresh_orange = doc["thresh_orange"];
         if (doc.containsKey("thresh_red")) g_app_state.settings.thresh_red = doc["thresh_red"];
@@ -172,62 +131,49 @@ void handle_api_action(AsyncWebServerRequest *request, uint8_t *data, size_t len
     }
 }
 
-// --- ЗАГЛУШКА ДЛЯ SNAPSHOT (пока не работает) ---
 void handle_snapshot(AsyncWebServerRequest *request) {
-    request->send(503, "text/plain", "Snapshot function is under rework.");
-}
-// --- Обработчик для MJPEG стрима ---
-void handle_stream(AsyncWebServerRequest *request) {
-    AsyncResponseStream *response = request->beginResponseStream("multipart/x-mixed-replace;boundary=123456789000000000000987654321");
-    
-    // --- КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ ---
-    // Немедленно отправляем первую boundary-строку, чтобы "успокоить" браузер
-    // и предотвратить таймаут ERR_EMPTY_RESPONSE, пока инициализируется камера.
-    response->print("--123456789000000000000987654321\r\n");
+    camera_fb_t *fb = NULL;
+    bool stream_was_active = (xEventGroupGetBits(xAppEventGroup) & CAM_INITIALIZED_BIT) != 0;
 
-    // Теперь, когда браузер спокоен, выполняем остальную логику
-    if (xSemaphoreTake(xStreamMutex, portMAX_DELAY) == pdTRUE) {
-        g_stream_clients.push_back(response);
-        // Если это первый клиент, устанавливаем флаг-запрос для stream_task
-        if (g_stream_clients.size() == 1) {
-            xEventGroupSetBits(xAppEventGroup, CAM_STREAM_REQUEST_BIT);
+    if (!stream_was_active) {
+        xEventGroupSetBits(xAppEventGroup, CAM_STREAM_REQUEST_BIT);
+        EventBits_t bits = xEventGroupWaitBits(xAppEventGroup, CAM_INITIALIZED_BIT, pdFALSE, pdTRUE, pdMS_TO_TICKS(2000));
+        if ((bits & CAM_INITIALIZED_BIT) == 0) {
+            xEventGroupClearBits(xAppEventGroup, CAM_STREAM_REQUEST_BIT);
+            request->send(503, "text/plain", "Camera snapshot timeout");
+            return;
         }
-        xSemaphoreGive(xStreamMutex);
     }
-    
-    // Логика отключения остается прежней
-    request->onDisconnect([response]() {
-        if (xSemaphoreTake(xStreamMutex, portMAX_DELAY) == pdTRUE) {
-            for (auto it = g_stream_clients.begin(); it != g_stream_clients.end(); ++it) {
-                if (*it == response) {
-                    g_stream_clients.erase(it);
-                    break;
-                }
-            }
-            xSemaphoreGive(xStreamMutex);
+
+    fb = camera_get_one_frame();
+
+    if (!stream_was_active) {
+        if (get_stream_clients_count() == 0) {
+             xEventGroupClearBits(xAppEventGroup, CAM_STREAM_REQUEST_BIT);
         }
-    });
+    }
+
+    if (!fb) {
+        request->send(503, "text/plain", "Failed to get frame");
+    } else {
+        request->send_P(200, "image/jpeg", (const uint8_t *)fb->buf, fb->len);
+        esp_camera_fb_return(fb);
+    }
 }
 
-// --- Инициализация ---
-void init_web_server() {
-    ws.onEvent(onWsEvent);
-    server.addHandler(&ws);
 
-    // --- API и обработчики ---
+void init_web_server() {
+    init_websockets(server);
+
     server.on("/api/settings", HTTP_GET, handle_get_settings);
-    server.on(
-        "/api/settings", HTTP_POST, 
+    server.on("/api/settings", HTTP_POST, 
         [](AsyncWebServerRequest *request){ request->send(200); }, NULL, handle_post_settings
     );
-    server.on(
-        "/api/action", HTTP_POST,
+    server.on("/api/action", HTTP_POST,
         [](AsyncWebServerRequest *request){}, NULL, handle_api_action
     );
     server.on("/api/snapshot", HTTP_GET, handle_snapshot);
-    server.on("/stream", HTTP_GET, handle_stream);
     
-    // --- Статика и 404 ---
     server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html").setCacheControl("max-age=600");
     server.onNotFound(onNotFound);
 
