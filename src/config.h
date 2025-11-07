@@ -61,6 +61,7 @@ struct AppSettings
   int xclk_freq;
   // System
   bool is_muted;
+  int volume;
   bool stream_active;
   // WiFi
   char wifi_ssid[32];

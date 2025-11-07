@@ -41,6 +41,7 @@ void handle_get_settings(AsyncWebServerRequest *request)
         doc["flip_h"] = g_app_state.settings.flip_h;
         doc["flip_v"] = g_app_state.settings.flip_v;
         doc["is_muted"] = g_app_state.settings.is_muted;
+        doc["volume"] = g_app_state.settings.volume;
         doc["stream_active"] = g_app_state.settings.stream_active;
         doc["rotation"] = g_app_state.settings.rotation;
         doc["xclk_freq"] = g_app_state.settings.xclk_freq;
@@ -106,6 +107,8 @@ void handle_post_settings(AsyncWebServerRequest *request, uint8_t *data, size_t 
             g_app_state.settings.flip_v = doc["flip_v"];
         if (doc.containsKey("is_muted"))
             g_app_state.settings.is_muted = doc["is_muted"];
+        if (doc.containsKey("volume"))
+            g_app_state.settings.volume = doc["volume"];
         if (doc.containsKey("stream_active"))
             g_app_state.settings.stream_active = doc["stream_active"];
         if (doc.containsKey("rotation"))

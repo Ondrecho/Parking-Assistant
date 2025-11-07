@@ -24,6 +24,7 @@ void load_default_settings()
     g_app_state.settings.flip_h = true;
     g_app_state.settings.flip_v = false;
     g_app_state.settings.is_muted = false;
+    g_app_state.settings.volume = 100;
     g_app_state.settings.stream_active = true;
     g_app_state.settings.rotation = 90;
     g_app_state.settings.xclk_freq = 22;
@@ -42,7 +43,6 @@ void settings_init()
             DeserializationError error = deserializeJson(doc, file);
             if (!error)
             {
-                // ЗАМЕНИТЬ старый блок загрузки на этот полный блок
                 g_app_state.settings.thresh_yellow = doc["thresh_yellow"] | 200;
                 g_app_state.settings.thresh_orange = doc["thresh_orange"] | 100;
                 g_app_state.settings.thresh_red = doc["thresh_red"] | 50;
@@ -60,6 +60,7 @@ void settings_init()
                 g_app_state.settings.flip_h = doc["flip_h"] | true;
                 g_app_state.settings.flip_v = doc["flip_v"] | false;
                 g_app_state.settings.is_muted = doc["is_muted"] | false;
+                g_app_state.settings.volume = doc["volume"] | 100;
                 g_app_state.settings.stream_active = doc["stream_active"] | true;
                 g_app_state.settings.rotation = doc["rotation"] | 90;
                 g_app_state.settings.xclk_freq = doc["xclk_freq"] | 22;
@@ -87,14 +88,12 @@ bool settings_save()
 {
     DynamicJsonDocument doc(2048);
 
-    // Блокируем мьютекс на время чтения состояния
     if (xSemaphoreTake(xStateMutex, pdMS_TO_TICKS(1000)) != pdTRUE)
     {
         Serial.println("Failed to take mutex for saving settings");
         return false;
     }
 
-    // Сериализуем все настройки в JSON
     doc["thresh_yellow"] = g_app_state.settings.thresh_yellow;
     doc["thresh_orange"] = g_app_state.settings.thresh_orange;
     doc["thresh_red"] = g_app_state.settings.thresh_red;
@@ -112,9 +111,10 @@ bool settings_save()
     doc["flip_h"] = g_app_state.settings.flip_h;
     doc["flip_v"] = g_app_state.settings.flip_v;
     doc["is_muted"] = g_app_state.settings.is_muted;
+    doc["volume"] = g_app_state.settings.volume;
     doc["stream_active"] = g_app_state.settings.stream_active;
-    doc["rotation"] = g_app_state.settings.rotation;   
-    doc["xclk_freq"] = g_app_state.settings.xclk_freq; 
+    doc["rotation"] = g_app_state.settings.rotation;
+    doc["xclk_freq"] = g_app_state.settings.xclk_freq;
     doc["wifi_ssid"] = g_app_state.settings.wifi_ssid;
     doc["wifi_pass"] = g_app_state.settings.wifi_pass;
 
