@@ -62,7 +62,7 @@ void setup()
     xTaskCreatePinnedToCore(stream_task, "StreamTask", 4096, NULL, 4, NULL, 1);
     xTaskCreatePinnedToCore(broadcast_sensors_task, "WsBroadcastTask", 4096, NULL, 3, NULL, 1);
     xTaskCreatePinnedToCore(frame_grab_task, "FrameGrabTask", 4096, NULL, 4, NULL, 0);
-    xTaskCreatePinnedToCore(settings_save_task, "SettingsSaveTask", 4096, NULL, 2, NULL, 1); 
+    xTaskCreatePinnedToCore(settings_save_task, "SettingsSaveTask", 4096, NULL, 3, NULL, 1); 
 
     Serial.println("Setup complete. Tasks are running.");
 }

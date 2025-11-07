@@ -2,9 +2,11 @@
 #include <Arduino.h>
 #include "esp_camera.h"
 #include "web/websocket_manager.h"
+#include "state.h" 
 
 extern QueueHandle_t xFrameQueue;
 extern SemaphoreHandle_t xCameraMutex;
+extern EventGroupHandle_t xAppEventGroup; 
 
 void stream_task(void *pvParameters) {
     (void)pvParameters;
@@ -18,7 +20,10 @@ void stream_task(void *pvParameters) {
                 }
 
                 if (xSemaphoreTake(xCameraMutex, portMAX_DELAY) == pdTRUE) {
-                    esp_camera_fb_return(fb);
+           
+                    if (xEventGroupGetBits(xAppEventGroup) & CAM_INITIALIZED_BIT) {
+                        esp_camera_fb_return(fb);
+                    }
                     xSemaphoreGive(xCameraMutex);
                 }
             }
