@@ -1,11 +1,10 @@
 #include "stream_task.h"
 #include <Arduino.h>
 #include "state.h"
-#include "tasks/camera_task.h"
+#include "esp_camera.h"
 #include "web/websocket_manager.h"
-#include "esp_camera.h" 
 
-extern SemaphoreHandle_t xCameraMutex; 
+extern SemaphoreHandle_t xCameraMutex;
 
 void stream_task(void *pvParameters) {
     (void)pvParameters;
@@ -20,6 +19,14 @@ void stream_task(void *pvParameters) {
                 continue;
             }
 
+            // Шаг 1: Сначала проверяем, можем ли мы ВООБЩЕ что-то отправить.
+            if (!is_stream_writable()) {
+                // Дадим сетевой задаче время на очистку буфера.
+                vTaskDelay(pdMS_TO_TICKS(10)); 
+                continue; // Начинаем следующую итерацию цикла.
+            }
+
+            // Если мы здесь, значит буфер свободен. Теперь можно работать с камерой.
             camera_fb_t *fb = NULL;
 
             if (xSemaphoreTake(xCameraMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
@@ -32,15 +39,16 @@ void stream_task(void *pvParameters) {
                 continue;
             }
 
-            if (is_stream_writable()) {
-                broadcast_ws_stream(fb->buf, fb->len);
-            }
+            // Отправляем кадр (мы уже знаем, что буфер был свободен)
+            broadcast_ws_stream(fb->buf, fb->len);
 
+            // Возвращаем буфер кадра
             if (xSemaphoreTake(xCameraMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
                 esp_camera_fb_return(fb);
                 xSemaphoreGive(xCameraMutex);
             }
-
+            
+            // Минимальная задержка, чтобы уступить процессорное время, когда все хорошо
             vTaskDelay(pdMS_TO_TICKS(1)); 
         }
 
