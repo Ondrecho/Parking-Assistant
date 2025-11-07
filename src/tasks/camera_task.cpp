@@ -4,18 +4,27 @@
 #include "config.h"
 #include "state.h"
 
-extern SemaphoreHandle_t xCameraMutex; 
+#define LOG_DEBUG(format, ...) Serial.printf("[%-12s] " format "\n", "CameraTask", ##__VA_ARGS__)
 
-framesize_t string_to_framesize(const char* str) {
-    if (strcmp(str, "QQVGA") == 0) return FRAMESIZE_QQVGA;
-    if (strcmp(str, "QVGA") == 0) return FRAMESIZE_QVGA;
-    if (strcmp(str, "VGA") == 0) return FRAMESIZE_VGA;
-    if (strcmp(str, "SVGA") == 0) return FRAMESIZE_SVGA;
-    if (strcmp(str, "XGA") == 0) return FRAMESIZE_XGA;
+extern SemaphoreHandle_t xCameraMutex;
+
+framesize_t string_to_framesize(const char *str)
+{
+    if (strcmp(str, "QQVGA") == 0)
+        return FRAMESIZE_QQVGA;
+    if (strcmp(str, "QVGA") == 0)
+        return FRAMESIZE_QVGA;
+    if (strcmp(str, "VGA") == 0)
+        return FRAMESIZE_VGA;
+    if (strcmp(str, "SVGA") == 0)
+        return FRAMESIZE_SVGA;
+    if (strcmp(str, "XGA") == 0)
+        return FRAMESIZE_XGA;
     return FRAMESIZE_VGA;
 }
 
-void camera_task(void *pvParameters) {
+void camera_task(void *pvParameters)
+{
     (void)pvParameters;
 
     camera_config_t config;
@@ -42,11 +51,14 @@ void camera_task(void *pvParameters) {
     config.grab_mode = CAMERA_GRAB_LATEST;
     config.fb_count = 2;
 
-      for (;;) {
+    for (;;)
+    {
         xEventGroupWaitBits(xAppEventGroup, CAM_STREAM_REQUEST_BIT, pdFALSE, pdFALSE, portMAX_DELAY);
+        LOG_DEBUG("Woke up by CAM_STREAM_REQUEST_BIT");
 
         bool flip_h, flip_v;
-        if (xSemaphoreTake(xStateMutex, portMAX_DELAY) == pdTRUE) {
+        if (xSemaphoreTake(xStateMutex, portMAX_DELAY) == pdTRUE)
+        {
             config.frame_size = string_to_framesize(g_app_state.settings.resolution);
             config.jpeg_quality = g_app_state.settings.jpeg_quality;
             config.xclk_freq_hz = g_app_state.settings.xclk_freq * 1000000;
@@ -58,58 +70,87 @@ void camera_task(void *pvParameters) {
 
         esp_err_t err;
 
-        if (xSemaphoreTake(xCameraMutex, portMAX_DELAY) == pdTRUE) {
+        LOG_DEBUG("Attempting to take camera mutex for INIT...");
+
+        if (xSemaphoreTake(xCameraMutex, portMAX_DELAY) == pdTRUE)
+        {
+            LOG_DEBUG("Mutex TAKEN. Initializing camera...");
+
             err = esp_camera_init(&config);
-            if (err == ESP_OK) {
+            if (err == ESP_OK)
+            {
                 sensor_t *s = esp_camera_sensor_get();
-                if (s) {
+                if (s)
+                {
                     s->set_hmirror(s, flip_h ? 1 : 0);
                     s->set_vflip(s, flip_v ? 1 : 0);
                 }
             }
+            LOG_DEBUG("Camera init done. Giving mutex...");
             xSemaphoreGive(xCameraMutex);
+            LOG_DEBUG("Mutex GIVEN.");
         }
 
-        if (err != ESP_OK) {
-            Serial.printf("[CameraTask] CRITICAL: Camera init failed with error 0x%x (%s)\n", err, esp_err_to_name(err));
+        if (err != ESP_OK)
+        {
+            LOG_DEBUG("CRITICAL: Camera init failed with error 0x%x (%s)", err, esp_err_to_name(err));
             xEventGroupClearBits(xAppEventGroup, CAM_STREAM_REQUEST_BIT);
             vTaskDelay(pdMS_TO_TICKS(2000));
             continue;
         }
-        
-        if (xSemaphoreTake(xStateMutex, portMAX_DELAY) == pdTRUE) {
+
+        if (xSemaphoreTake(xStateMutex, portMAX_DELAY) == pdTRUE)
+        {
             g_app_state.is_camera_initialized = true;
             xSemaphoreGive(xStateMutex);
         }
 
         xEventGroupSetBits(xAppEventGroup, CAM_INITIALIZED_BIT);
-        Serial.println("[CameraTask] Camera initialized. Signal sent.");
+        LOG_DEBUG("Camera initialized. Signal CAM_INITIALIZED_BIT sent.");
 
-        while (xEventGroupGetBits(xAppEventGroup) & CAM_STREAM_REQUEST_BIT) {
+        while (xEventGroupGetBits(xAppEventGroup) & CAM_STREAM_REQUEST_BIT)
+        {
             vTaskDelay(pdMS_TO_TICKS(100));
         }
 
-        xEventGroupClearBits(xAppEventGroup, CAM_INITIALIZED_BIT);
+        LOG_DEBUG("CAM_STREAM_REQUEST_BIT is gone. Starting de-initialization.");
 
-        if (xSemaphoreTake(xCameraMutex, portMAX_DELAY) == pdTRUE) {
+        xEventGroupClearBits(xAppEventGroup, CAM_INITIALIZED_BIT);
+        LOG_DEBUG("Signal CAM_INITIALIZED_BIT cleared.");
+
+        LOG_DEBUG("Attempting to take camera mutex for DEINIT...");
+
+        if (xSemaphoreTake(xCameraMutex, portMAX_DELAY) == pdTRUE)
+        {
+            LOG_DEBUG("Mutex TAKEN. De-initializing camera...");
+
             esp_camera_deinit();
+            LOG_DEBUG("Camera de-init done. Giving mutex...");
+
             xSemaphoreGive(xCameraMutex);
+            LOG_DEBUG("Mutex GIVEN.");
         }
-        
-        if (xSemaphoreTake(xStateMutex, portMAX_DELAY) == pdTRUE) {
+
+        if (xSemaphoreTake(xStateMutex, portMAX_DELAY) == pdTRUE)
+        {
             g_app_state.is_camera_initialized = false;
             xSemaphoreGive(xStateMutex);
         }
-        Serial.println("[CameraTask] Camera de-initialized.");
+        LOG_DEBUG("Camera de-initialized completely.");
     }
 }
 
-camera_fb_t* camera_get_one_frame() {
+camera_fb_t *camera_get_one_frame()
+{
     bool is_cam_init = false;
-    if (xSemaphoreTake(xStateMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+    if (xSemaphoreTake(xStateMutex, pdMS_TO_TICKS(100)) == pdTRUE)
+    {
         is_cam_init = g_app_state.is_camera_initialized;
         xSemaphoreGive(xStateMutex);
     }
-    if (!is_cam_init) { return NULL; }
+    if (!is_cam_init)
+    {
+        return NULL;
+    }
     return esp_camera_fb_get();
 }
