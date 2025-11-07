@@ -8,10 +8,10 @@
 #include "tasks/camera_task.h"
 #include "websocket_manager.h"
 #include "esp_camera.h"
-#include "tasks/camera_utils.h" 
 
 AsyncWebServer server(80);
 extern SemaphoreHandle_t xCameraMutex;
+extern QueueHandle_t xFrameQueue;
 
 void onNotFound(AsyncWebServerRequest *request)
 {
@@ -190,7 +190,6 @@ void handle_api_action(AsyncWebServerRequest *request, uint8_t *data, size_t len
 
 void handle_snapshot(AsyncWebServerRequest *request) {
     bool stream_was_active = (xEventGroupGetBits(xAppEventGroup) & CAM_INITIALIZED_BIT) != 0;
-
     if (!stream_was_active) {
         xEventGroupSetBits(xAppEventGroup, CAM_STREAM_REQUEST_BIT);
         EventBits_t bits = xEventGroupWaitBits(xAppEventGroup, CAM_INITIALIZED_BIT, pdFALSE, pdTRUE, pdMS_TO_TICKS(2000));
@@ -201,19 +200,26 @@ void handle_snapshot(AsyncWebServerRequest *request) {
         }
     }
 
-    camera_fb_t *fb = safe_camera_get_fb();
+    camera_fb_t *fb = NULL;
+    if (xQueueReceive(xFrameQueue, &fb, pdMS_TO_TICKS(2000)) == pdTRUE) {
+        if (fb) {
+            request->send_P(200, "image/jpeg", (const uint8_t *)fb->buf, fb->len);
+            
+            if (xSemaphoreTake(xCameraMutex, portMAX_DELAY) == pdTRUE) {
+                esp_camera_fb_return(fb);
+                xSemaphoreGive(xCameraMutex);
+            }
+        } else {
+            request->send(503, "text/plain", "Failed to get frame (null pointer received)");
+        }
+    } else {
+        request->send(503, "text/plain", "Snapshot timeout waiting for frame from camera");
+    }
 
     if (!stream_was_active) {
         if (get_stream_clients_count() == 0) {
              xEventGroupClearBits(xAppEventGroup, CAM_STREAM_REQUEST_BIT);
         }
-    }
-
-    if (!fb) {
-        request->send(503, "text/plain", "Failed to get frame, camera may be busy");
-    } else {
-        request->send_P(200, "image/jpeg", (const uint8_t *)fb->buf, fb->len);
-        safe_camera_return_fb(fb);
     }
 }
 

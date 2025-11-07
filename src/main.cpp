@@ -9,12 +9,14 @@
 #include "web/web_server.h"
 #include "web/websocket_manager.h"
 #include "settings_manager.h"
+#include "tasks/frame_grab_task.h" // <--- ДОБАВЛЕНО
 
+// Глобальные определения
 AppState g_app_state;
 SemaphoreHandle_t xStateMutex = NULL;
 EventGroupHandle_t xAppEventGroup = NULL;
-
 SemaphoreHandle_t xCameraMutex = NULL;
+QueueHandle_t xFrameQueue = NULL;      // <--- ДОБАВЛЕНО
 
 void setup() {
     Serial.begin(115200);
@@ -23,8 +25,11 @@ void setup() {
 
     xStateMutex = xSemaphoreCreateMutex();
     xAppEventGroup = xEventGroupCreate();
-     xCameraMutex = xSemaphoreCreateMutex();
-    if (!xStateMutex || !xAppEventGroup  || !xCameraMutex) {
+    xCameraMutex = xSemaphoreCreateMutex();
+    // Создаем очередь для 1 указателя на буфер кадра
+    xFrameQueue = xQueueCreate(1, sizeof(camera_fb_t *)); // <--- ДОБАВЛЕНО
+
+    if (!xStateMutex || !xAppEventGroup || !xCameraMutex || !xFrameQueue) { // <--- ДОБАВЛЕНО
         Serial.println("Failed to create sync objects!");
         return;
     }
@@ -51,8 +56,10 @@ void setup() {
     xTaskCreatePinnedToCore(sensors_task, "SensorsTask", 4096, NULL, 5, NULL, 1);
     xTaskCreatePinnedToCore(camera_task, "CameraTask", 4096, NULL, 5, NULL, 0);
     xTaskCreatePinnedToCore(stream_task, "StreamTask", 4096, NULL, 4, NULL, 1);
-    xTaskCreatePinnedToCore(broadcast_sensors_task, "WsSensorsTask", 4096, NULL, 3, NULL, 1);
-
+    xTaskCreatePinnedToCore(broadcast_sensors_task, "WsBroadcastTask", 4096, NULL, 3, NULL, 1);
+    // Запускаем новую задачу на ядре 0
+    xTaskCreatePinnedToCore(frame_grab_task, "FrameGrabTask", 4096, NULL, 4, NULL, 0); // <--- ДОБАВЛЕНО
+    
     Serial.println("Setup complete. Tasks are running.");
 }
 
