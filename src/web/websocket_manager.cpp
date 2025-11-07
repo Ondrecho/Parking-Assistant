@@ -57,6 +57,10 @@ void broadcast_ws_json(JsonDocument& doc) {
     ws.textAll(buffer);
 }
 
+bool is_stream_writable() {
+    return ws_stream.availableForWriteAll();
+}
+
 void broadcast_ws_stream(const uint8_t* data, size_t len) {
     ws_stream.binaryAll(reinterpret_cast<const char*>(data), len);
 }

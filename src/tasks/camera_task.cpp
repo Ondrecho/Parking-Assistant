@@ -35,7 +35,7 @@ void camera_task(void *pvParameters) {
     config.pin_sccb_scl = CAM_PIN_SIOC;
     config.pin_pwdn = CAM_PIN_PWDN;
     config.pin_reset = CAM_PIN_RESET;
-    config.xclk_freq_hz = 20000000;
+    config.xclk_freq_hz = 24000000;
     config.pixel_format = PIXFORMAT_JPEG;
     config.fb_location = CAMERA_FB_IN_PSRAM;
     config.grab_mode = CAMERA_GRAB_LATEST;
