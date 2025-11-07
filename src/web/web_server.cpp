@@ -8,11 +8,10 @@
 #include "tasks/camera_task.h"
 #include "websocket_manager.h"
 #include "esp_camera.h"
+#include "tasks/camera_utils.h" 
 
 AsyncWebServer server(80);
 extern SemaphoreHandle_t xCameraMutex;
-extern QueueHandle_t xFrameQueue;
-extern EventGroupHandle_t xAppEventGroup;
 
 void onNotFound(AsyncWebServerRequest *request)
 {
@@ -67,9 +66,7 @@ void handle_post_settings(AsyncWebServerRequest *request, uint8_t *data, size_t 
         return;
 
     DynamicJsonDocument doc(2048);
-    DeserializationError error = deserializeJson(doc, data, len);
-
-    if (error)
+    if (deserializeJson(doc, data, len))
     {
         request->send(400, "text/plain", "Invalid JSON");
         return;
@@ -123,7 +120,6 @@ void handle_post_settings(AsyncWebServerRequest *request, uint8_t *data, size_t 
             strlcpy(g_app_state.settings.wifi_ssid, doc["wifi_ssid"], sizeof(g_app_state.settings.wifi_ssid));
         if (doc.containsKey("wifi_pass"))
             strlcpy(g_app_state.settings.wifi_pass, doc["wifi_pass"], sizeof(g_app_state.settings.wifi_pass));
-
         xSemaphoreGive(xStateMutex);
     }
     else
@@ -132,9 +128,14 @@ void handle_post_settings(AsyncWebServerRequest *request, uint8_t *data, size_t 
         return;
     }
 
-    xEventGroupSetBits(xAppEventGroup, SETTINGS_SAVE_REQUEST_BIT);
-
-    request->send(200, "text/plain", "OK");
+    if (settings_save())
+    {
+        request->send(200, "text/plain", "OK");
+    }
+    else
+    {
+        request->send(500, "text/plain", "Failed to save settings");
+    }
 }
 
 void handle_api_action(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total)
@@ -163,7 +164,7 @@ void handle_api_action(AsyncWebServerRequest *request, uint8_t *data, size_t len
             g_app_state.settings.is_muted = !g_app_state.settings.is_muted;
             xSemaphoreGive(xStateMutex);
         }
-        xEventGroupSetBits(xAppEventGroup, SETTINGS_SAVE_REQUEST_BIT);
+        settings_save();
         request->send(200, "text/plain", "OK");
     }
     else if (strcmp(action, "toggleStream") == 0)
@@ -173,7 +174,7 @@ void handle_api_action(AsyncWebServerRequest *request, uint8_t *data, size_t len
             g_app_state.settings.stream_active = !g_app_state.settings.stream_active;
             xSemaphoreGive(xStateMutex);
         }
-        xEventGroupSetBits(xAppEventGroup, SETTINGS_SAVE_REQUEST_BIT);
+        settings_save();
         request->send(200, "text/plain", "OK");
     }
     else if (strcmp(action, "resetSettings") == 0)
@@ -187,50 +188,32 @@ void handle_api_action(AsyncWebServerRequest *request, uint8_t *data, size_t len
     }
 }
 
-void handle_snapshot(AsyncWebServerRequest *request)
-{
-    bool is_cam_init = false;
-    // Проверяем, инициализирована ли камера, не блокируя
-    if (xSemaphoreTake(xStateMutex, pdMS_TO_TICKS(100)) == pdTRUE)
-    {
-        is_cam_init = g_app_state.is_camera_initialized;
-        xSemaphoreGive(xStateMutex);
-    }
+void handle_snapshot(AsyncWebServerRequest *request) {
+    bool stream_was_active = (xEventGroupGetBits(xAppEventGroup) & CAM_INITIALIZED_BIT) != 0;
 
-    if (!is_cam_init)
-    {
-        // Камера не готова, немедленно сообщаем об этом
-        request->send(503, "text/plain", "Camera not initialized. Please start stream first.");
-        return;
-    }
-
-    camera_fb_t *fb = NULL;
-    // Пытаемся получить кадр из очереди с таймаутом в 1 секунду
-    if (xQueueReceive(xFrameQueue, &fb, pdMS_TO_TICKS(1000)) == pdTRUE)
-    {
-        if (fb)
-        {
-            request->send_P(200, "image/jpeg", (const uint8_t *)fb->buf, fb->len);
-
-            // ВАЖНО: исправляем гонку, проверяя состояние камеры ПЕРЕД возвратом буфера
-            if (xSemaphoreTake(xCameraMutex, portMAX_DELAY) == pdTRUE)
-            {
-                // Проверяем, что камера ВСЕ ЕЩЕ жива
-                if (xEventGroupGetBits(xAppEventGroup) & CAM_INITIALIZED_BIT)
-                {
-                    esp_camera_fb_return(fb);
-                }
-                xSemaphoreGive(xCameraMutex);
-            }
-        }
-        else
-        {
-            request->send(503, "text/plain", "Failed to get frame (null pointer received)");
+    if (!stream_was_active) {
+        xEventGroupSetBits(xAppEventGroup, CAM_STREAM_REQUEST_BIT);
+        EventBits_t bits = xEventGroupWaitBits(xAppEventGroup, CAM_INITIALIZED_BIT, pdFALSE, pdTRUE, pdMS_TO_TICKS(2000));
+        if ((bits & CAM_INITIALIZED_BIT) == 0) {
+            xEventGroupClearBits(xAppEventGroup, CAM_STREAM_REQUEST_BIT);
+            request->send(503, "text/plain", "Camera snapshot timeout");
+            return;
         }
     }
-    else
-    {
-        request->send(503, "text/plain", "Snapshot timeout waiting for frame from queue");
+
+    camera_fb_t *fb = safe_camera_get_fb();
+
+    if (!stream_was_active) {
+        if (get_stream_clients_count() == 0) {
+             xEventGroupClearBits(xAppEventGroup, CAM_STREAM_REQUEST_BIT);
+        }
+    }
+
+    if (!fb) {
+        request->send(503, "text/plain", "Failed to get frame, camera may be busy");
+    } else {
+        request->send_P(200, "image/jpeg", (const uint8_t *)fb->buf, fb->len);
+        safe_camera_return_fb(fb);
     }
 }
 

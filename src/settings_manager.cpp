@@ -80,7 +80,7 @@ void settings_init()
     {
         Serial.println("settings.json not found, loading defaults and creating file.");
         load_default_settings();
-        settings_save(); 
+        settings_save(); // Сохраняем дефолтные настройки, чтобы файл создался
     }
 }
 
@@ -139,36 +139,24 @@ bool settings_save()
     return true;
 }
 
-void settings_reset_to_default() {
+void settings_reset_to_default()
+{
     Serial.println("Resetting settings to default values.");
-    
-    if (xSemaphoreTake(xStateMutex, portMAX_DELAY) == pdTRUE) {
-        load_default_settings(); 
+
+    // Блокируем мьютекс, чтобы безопасно изменить глобальное состояние
+    if (xSemaphoreTake(xStateMutex, portMAX_DELAY) == pdTRUE)
+    {
+
+        // Загружаем дефолтные значения в g_app_state
+        load_default_settings();
+
         xSemaphoreGive(xStateMutex);
-        
-        xEventGroupSetBits(xAppEventGroup, SETTINGS_SAVE_REQUEST_BIT); 
-    } else {
-        Serial.println("Failed to take mutex for settings reset.");
+
+        // Сохраняем новые (дефолтные) настройки в файл settings.json
+        settings_save();
     }
-}
-
-void settings_save_task(void *pvParameters) {
-    (void)pvParameters;
-    Serial.println("Settings save task started.");
-    
-    for (;;) {
-        xEventGroupWaitBits(xAppEventGroup, 
-                            SETTINGS_SAVE_REQUEST_BIT, 
-                            pdTRUE,   
-                            pdFALSE, 
-                            portMAX_DELAY);
-
-        Serial.println("Settings save task: Request received, saving...");
-        
-        if (settings_save()) {
-            Serial.println("Settings save task: Settings saved successfully.");
-        } else {
-            Serial.println("Settings save task: FAILED to save settings.");
-        }
+    else
+    {
+        Serial.println("Failed to take mutex for settings reset.");
     }
 }

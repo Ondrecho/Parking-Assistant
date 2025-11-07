@@ -16,4 +16,3 @@ extern EventGroupHandle_t xAppEventGroup;
 
 const EventBits_t CAM_STREAM_REQUEST_BIT = (1 << 0);
 const EventBits_t CAM_INITIALIZED_BIT    = (1 << 1);
-const EventBits_t SETTINGS_SAVE_REQUEST_BIT = (1 << 2); 
