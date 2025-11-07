@@ -1,9 +1,9 @@
 #pragma once
-#include "esp_camera.h" // Нужно для camera_fb_t
+#include "esp_camera.h"
 
-// Прототип задачи управления камерой
+extern camera_config_t g_camera_config; // Делаем конфиг доступным
+
+void camera_init_config(); // Объявляем функцию инициализации конфига
 void camera_task(void *pvParameters);
-
-// Функция для получения одного кадра (для snapshot)
-// Возвращает указатель на frame buffer, который нужно освободить с помощью esp_camera_fb_return()
 camera_fb_t* camera_get_one_frame();
+framesize_t string_to_framesize(const char* str); // Оставляем

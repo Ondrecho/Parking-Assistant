@@ -172,70 +172,30 @@ void handle_api_action(AsyncWebServerRequest *request, uint8_t *data, size_t len
     }
 }
 
-// ОБРАБОТЧИК ДЛЯ СНИМКОВ 
+// --- ЗАГЛУШКА ДЛЯ SNAPSHOT (пока не работает) ---
 void handle_snapshot(AsyncWebServerRequest *request) {
-    camera_fb_t *fb = NULL;
-    bool stream_was_active = (xEventGroupGetBits(xAppEventGroup) & CAM_INITIALIZED_BIT) != 0;
-
-    // Если стрим НЕ активен, нам нужно его запустить
-    if (!stream_was_active) {
-        if (xSemaphoreTake(xStreamMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-            // Просим включить камеру
-            xEventGroupSetBits(xAppEventGroup, CAM_STREAM_REQUEST_BIT);
-            
-            // Ждем, пока камера инициализируется, с таймаутом 2с
-            EventBits_t bits = xEventGroupWaitBits(xAppEventGroup, CAM_INITIALIZED_BIT, pdFALSE, pdTRUE, pdMS_TO_TICKS(2000));
-
-            if ((bits & CAM_INITIALIZED_BIT) == 0) {
-                xEventGroupClearBits(xAppEventGroup, CAM_STREAM_REQUEST_BIT); // Отменяем запрос
-                xSemaphoreGive(xStreamMutex);
-                request->send(503, "text/plain", "Camera snapshot timeout");
-                return;
-            }
-            xSemaphoreGive(xStreamMutex);
-        } else {
-            request->send(503, "text/plain", "Server busy");
-            return;
-        }
-    }
-
-    // К этому моменту камера ТОЧНО включена
-    fb = camera_get_one_frame();
-
-    // Если мы сами включили камеру, выключаем ее
-    if (!stream_was_active) {
-        if (xSemaphoreTake(xStreamMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-            // Просим выключить камеру, ТОЛЬКО если нет клиентов стрима
-            if (g_stream_clients.empty()) {
-                xEventGroupClearBits(xAppEventGroup, CAM_STREAM_REQUEST_BIT);
-            }
-            xSemaphoreGive(xStreamMutex);
-        }
-    }
-
-    // Отправляем кадр
-    if (!fb) {
-        request->send(503, "text/plain", "Failed to get frame");
-    } else {
-        request->send_P(200, "image/jpeg", (const uint8_t *)fb->buf, fb->len);
-        esp_camera_fb_return(fb);
-    }
+    request->send(503, "text/plain", "Snapshot function is under rework.");
 }
-
-// --- НОВЫЙ, НАДЕЖНЫЙ ОБРАБОТЧИК ДЛЯ СТРИМА ---
+// --- Обработчик для MJPEG стрима ---
 void handle_stream(AsyncWebServerRequest *request) {
     AsyncResponseStream *response = request->beginResponseStream("multipart/x-mixed-replace;boundary=123456789000000000000987654321");
     
-    // Атомарно добавляем клиента и включаем камеру при необходимости
+    // --- КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ ---
+    // Немедленно отправляем первую boundary-строку, чтобы "успокоить" браузер
+    // и предотвратить таймаут ERR_EMPTY_RESPONSE, пока инициализируется камера.
+    response->print("--123456789000000000000987654321\r\n");
+
+    // Теперь, когда браузер спокоен, выполняем остальную логику
     if (xSemaphoreTake(xStreamMutex, portMAX_DELAY) == pdTRUE) {
         g_stream_clients.push_back(response);
+        // Если это первый клиент, устанавливаем флаг-запрос для stream_task
         if (g_stream_clients.size() == 1) {
             xEventGroupSetBits(xAppEventGroup, CAM_STREAM_REQUEST_BIT);
         }
         xSemaphoreGive(xStreamMutex);
     }
     
-    // Атомарно удаляем клиента и выключаем камеру при необходимости
+    // Логика отключения остается прежней
     request->onDisconnect([response]() {
         if (xSemaphoreTake(xStreamMutex, portMAX_DELAY) == pdTRUE) {
             for (auto it = g_stream_clients.begin(); it != g_stream_clients.end(); ++it) {
@@ -243,9 +203,6 @@ void handle_stream(AsyncWebServerRequest *request) {
                     g_stream_clients.erase(it);
                     break;
                 }
-            }
-            if (g_stream_clients.empty()) {
-                xEventGroupClearBits(xAppEventGroup, CAM_STREAM_REQUEST_BIT);
             }
             xSemaphoreGive(xStreamMutex);
         }
