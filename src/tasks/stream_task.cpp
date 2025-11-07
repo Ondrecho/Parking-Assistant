@@ -12,24 +12,28 @@ void stream_task(void *pvParameters) {
     for (;;) {
         xEventGroupWaitBits(xAppEventGroup, CAM_INITIALIZED_BIT, pdFALSE, pdFALSE, portMAX_DELAY);
 
-        while (xEventGroupGetBits(xAppEventGroup) & CAM_INITIALIZED_BIT) {
+        while (xEventGroupGetBits(xAppEventGroup) & CAM_STREAM_REQUEST_BIT) {
             
             if (get_stream_clients_count() == 0) {
                 vTaskDelay(pdMS_TO_TICKS(100));
                 continue;
             }
 
-            // Шаг 1: Сначала проверяем, можем ли мы ВООБЩЕ что-то отправить.
             if (!is_stream_writable()) {
-                // Дадим сетевой задаче время на очистку буфера.
                 vTaskDelay(pdMS_TO_TICKS(10)); 
-                continue; // Начинаем следующую итерацию цикла.
+                continue;
             }
 
-            // Если мы здесь, значит буфер свободен. Теперь можно работать с камерой.
             camera_fb_t *fb = NULL;
 
             if (xSemaphoreTake(xCameraMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+                
+                if (!(xEventGroupGetBits(xAppEventGroup) & CAM_INITIALIZED_BIT)) {
+
+                    xSemaphoreGive(xCameraMutex);
+                    break; 
+                }
+                
                 fb = esp_camera_fb_get();
                 xSemaphoreGive(xCameraMutex);
             }
@@ -39,19 +43,15 @@ void stream_task(void *pvParameters) {
                 continue;
             }
 
-            // Отправляем кадр (мы уже знаем, что буфер был свободен)
             broadcast_ws_stream(fb->buf, fb->len);
 
-            // Возвращаем буфер кадра
             if (xSemaphoreTake(xCameraMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
                 esp_camera_fb_return(fb);
                 xSemaphoreGive(xCameraMutex);
             }
             
-            // Минимальная задержка, чтобы уступить процессорное время, когда все хорошо
             vTaskDelay(pdMS_TO_TICKS(1)); 
         }
 
-        vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
