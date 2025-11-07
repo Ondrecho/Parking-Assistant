@@ -38,9 +38,9 @@ const SensorConfig SENSOR_PINS[NUM_SENSORS] = {
 // --- Структура настроек (соответствует клиенту) ---
 struct AppSettings {
     // Parktronic
-    float thresh_yellow;
-    float thresh_orange;
-    float thresh_red;
+    int thresh_yellow;
+    int thresh_orange;
+    int thresh_red;
     int bpm_min;
     int bpm_max;
     bool auto_start;
