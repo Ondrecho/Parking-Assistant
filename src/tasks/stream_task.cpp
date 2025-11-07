@@ -3,6 +3,7 @@
 #include "state.h"
 #include "esp_camera.h"
 #include "web/websocket_manager.h"
+#include "tasks/camera_utils.h" 
 
 extern SemaphoreHandle_t xCameraMutex;
 
@@ -24,26 +25,13 @@ void stream_task(void *pvParameters) {
                 continue;
             }
 
-            if (xSemaphoreTake(xCameraMutex, pdMS_TO_TICKS(50)) == pdTRUE) {
-                
-                if (!(xEventGroupGetBits(xAppEventGroup) & CAM_INITIALIZED_BIT)) {
-                    xSemaphoreGive(xCameraMutex);
-                    break; 
-                }
-                
-                camera_fb_t *fb = esp_camera_fb_get();
+            camera_fb_t *fb = safe_camera_get_fb();
 
-                if (fb) {
-                    broadcast_ws_stream(fb->buf, fb->len);
-                    
-                    esp_camera_fb_return(fb);
-                }
-                
-                xSemaphoreGive(xCameraMutex);
-
+            if (fb) {
+                broadcast_ws_stream(fb->buf, fb->len);
+                safe_camera_return_fb(fb);
             } else {
-
-                vTaskDelay(pdMS_TO_TICKS(5));
+                vTaskDelay(pdMS_TO_TICKS(20));
             }
             
             vTaskDelay(pdMS_TO_TICKS(1)); 
