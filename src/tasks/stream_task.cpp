@@ -24,34 +24,29 @@ void stream_task(void *pvParameters) {
                 continue;
             }
 
-            camera_fb_t *fb = NULL;
-
-            if (xSemaphoreTake(xCameraMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+            if (xSemaphoreTake(xCameraMutex, pdMS_TO_TICKS(50)) == pdTRUE) {
                 
                 if (!(xEventGroupGetBits(xAppEventGroup) & CAM_INITIALIZED_BIT)) {
-
                     xSemaphoreGive(xCameraMutex);
                     break; 
                 }
                 
-                fb = esp_camera_fb_get();
+                camera_fb_t *fb = esp_camera_fb_get();
+
+                if (fb) {
+                    broadcast_ws_stream(fb->buf, fb->len);
+                    
+                    esp_camera_fb_return(fb);
+                }
+                
                 xSemaphoreGive(xCameraMutex);
-            }
 
-            if (!fb) {
-                vTaskDelay(pdMS_TO_TICKS(10));
-                continue;
-            }
+            } else {
 
-            broadcast_ws_stream(fb->buf, fb->len);
-
-            if (xSemaphoreTake(xCameraMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-                esp_camera_fb_return(fb);
-                xSemaphoreGive(xCameraMutex);
+                vTaskDelay(pdMS_TO_TICKS(5));
             }
             
             vTaskDelay(pdMS_TO_TICKS(1)); 
         }
-
     }
 }
