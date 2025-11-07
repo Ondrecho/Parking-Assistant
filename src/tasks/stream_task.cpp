@@ -3,6 +3,9 @@
 #include "state.h"
 #include "tasks/camera_task.h"
 #include "web/websocket_manager.h"
+#include "esp_camera.h" 
+
+extern SemaphoreHandle_t xCameraMutex; 
 
 void stream_task(void *pvParameters) {
     (void)pvParameters;
@@ -17,7 +20,13 @@ void stream_task(void *pvParameters) {
                 continue;
             }
 
-            camera_fb_t *fb = camera_get_one_frame();
+            camera_fb_t *fb = NULL;
+
+            if (xSemaphoreTake(xCameraMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+                fb = esp_camera_fb_get();
+                xSemaphoreGive(xCameraMutex);
+            }
+
             if (!fb) {
                 vTaskDelay(pdMS_TO_TICKS(10));
                 continue;
@@ -25,13 +34,13 @@ void stream_task(void *pvParameters) {
 
             if (is_stream_writable()) {
                 broadcast_ws_stream(fb->buf, fb->len);
-            } else {
-                // Буфер занят, просто пропускаем этот кадр.
-                // Serial.println("[StreamTask] WS buffer full, frame dropped."); // Для отладки
             }
-            
-            esp_camera_fb_return(fb);
-            
+
+            if (xSemaphoreTake(xCameraMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+                esp_camera_fb_return(fb);
+                xSemaphoreGive(xCameraMutex);
+            }
+
             vTaskDelay(pdMS_TO_TICKS(1)); 
         }
 

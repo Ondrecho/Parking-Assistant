@@ -14,6 +14,8 @@ AppState g_app_state;
 SemaphoreHandle_t xStateMutex = NULL;
 EventGroupHandle_t xAppEventGroup = NULL;
 
+SemaphoreHandle_t xCameraMutex = NULL;
+
 void setup() {
     Serial.begin(115200);
     delay(1000);
@@ -21,7 +23,8 @@ void setup() {
 
     xStateMutex = xSemaphoreCreateMutex();
     xAppEventGroup = xEventGroupCreate();
-    if (!xStateMutex || !xAppEventGroup) {
+     xCameraMutex = xSemaphoreCreateMutex();
+    if (!xStateMutex || !xAppEventGroup  || !xCameraMutex) {
         Serial.println("Failed to create sync objects!");
         return;
     }
