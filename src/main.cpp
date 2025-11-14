@@ -48,12 +48,33 @@ void setup() {
 
     init_web_server();
 
-    xTaskCreatePinnedToCore(sensors_task, "SensorsTask", 4096, NULL, 5, NULL, 1);
-    xTaskCreatePinnedToCore(camera_task, "CameraTask", 4096, NULL, 5, NULL, 0);
-    xTaskCreatePinnedToCore(stream_task, "StreamTask", 4096, NULL, 4, NULL, 1);
-    xTaskCreatePinnedToCore(broadcast_sensors_task, "WsSensorsTask", 4096, NULL, 3, NULL, 1);
+    BaseType_t task_creation_result;
 
-    Serial.println("Setup complete. Tasks are running.");
+    task_creation_result = xTaskCreatePinnedToCore(sensors_task, "SensorsTask", 4096, NULL, 5, NULL, 1);
+    if (task_creation_result != pdPASS) {
+        Serial.println("CRITICAL: Failed to create SensorsTask!");
+        while(1) vTaskDelay(1000); 
+    }
+
+    task_creation_result = xTaskCreatePinnedToCore(camera_task, "CameraTask", 4096, NULL, 5, NULL, 0);
+    if (task_creation_result != pdPASS) {
+        Serial.println("CRITICAL: Failed to create CameraTask!");
+        while(1) vTaskDelay(1000); 
+    }
+
+    task_creation_result = xTaskCreatePinnedToCore(stream_task, "StreamTask", 4096, NULL, 4, NULL, 1);
+    if (task_creation_result != pdPASS) {
+        Serial.println("CRITICAL: Failed to create StreamTask!");
+        while(1) vTaskDelay(1000); 
+    }
+    
+    task_creation_result = xTaskCreatePinnedToCore(broadcast_sensors_task, "WsSensorsTask", 4096, NULL, 3, NULL, 1);
+    if (task_creation_result != pdPASS) {
+        Serial.println("CRITICAL: Failed to create WsSensorsTask!");
+        while(1) vTaskDelay(1000); 
+    }
+
+    Serial.println("Setup complete. All tasks are running.");
 }
 
 void loop() {
