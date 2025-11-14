@@ -97,8 +97,6 @@ void handle_post_settings(AsyncWebServerRequest *request, uint8_t *data, size_t 
             g_app_state.settings.grid_offset_y = doc["grid_offset_y"];
         if (doc.containsKey("grid_offset_z"))
             g_app_state.settings.grid_offset_z = doc["grid_offset_z"];
-        if (doc.containsKey("resolution"))
-            strlcpy(g_app_state.settings.resolution, doc["resolution"], sizeof(g_app_state.settings.resolution));
         if (doc.containsKey("jpeg_quality"))
             g_app_state.settings.jpeg_quality = doc["jpeg_quality"];
         if (doc.containsKey("flip_h"))
@@ -115,10 +113,32 @@ void handle_post_settings(AsyncWebServerRequest *request, uint8_t *data, size_t 
             g_app_state.settings.rotation = doc["rotation"];
         if (doc.containsKey("xclk_freq"))
             g_app_state.settings.xclk_freq = doc["xclk_freq"];
+
+        if (doc.containsKey("resolution"))
+        {
+            const char *res_str = doc["resolution"];
+            if (res_str)
+            { 
+                strlcpy(g_app_state.settings.resolution, res_str, sizeof(g_app_state.settings.resolution));
+            }
+        }
         if (doc.containsKey("wifi_ssid"))
-            strlcpy(g_app_state.settings.wifi_ssid, doc["wifi_ssid"], sizeof(g_app_state.settings.wifi_ssid));
+        {
+            const char *ssid_str = doc["wifi_ssid"];
+            if (ssid_str)
+            { 
+                strlcpy(g_app_state.settings.wifi_ssid, ssid_str, sizeof(g_app_state.settings.wifi_ssid));
+            }
+        }
         if (doc.containsKey("wifi_pass"))
-            strlcpy(g_app_state.settings.wifi_pass, doc["wifi_pass"], sizeof(g_app_state.settings.wifi_pass));
+        {
+            const char *pass_str = doc["wifi_pass"];
+            if (pass_str)
+            {
+                strlcpy(g_app_state.settings.wifi_pass, pass_str, sizeof(g_app_state.settings.wifi_pass));
+            }
+        }
+
         xSemaphoreGive(xStateMutex);
     }
     else
