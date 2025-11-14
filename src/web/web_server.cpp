@@ -65,10 +65,52 @@ void handle_post_settings(AsyncWebServerRequest *request, uint8_t *data, size_t 
         return;
 
     DynamicJsonDocument doc(2048);
-    if (deserializeJson(doc, data, len))
+    DeserializationError error = deserializeJson(doc, data, len);
+
+    if (error)
     {
         request->send(400, "text/plain", "Invalid JSON");
         return;
+    }
+
+    if (doc.containsKey("wifi_ssid"))
+    {
+        const char *ssid = doc["wifi_ssid"];
+        if (!ssid || strlen(ssid) == 0 || strlen(ssid) > 31)
+        {
+            request->send(400, "text/plain", "Invalid wifi_ssid: must be 1-31 chars long and not null.");
+            return;
+        }
+    }
+
+    if (doc.containsKey("wifi_pass"))
+    {
+        const char *pass = doc["wifi_pass"];
+        if (pass && strlen(pass) > 0 && strlen(pass) < 8)
+        {
+            request->send(400, "text/plain", "Invalid wifi_pass: must be null or >= 8 chars long.");
+            return;
+        }
+    }
+
+    if (doc.containsKey("jpeg_quality"))
+    {
+        int quality = doc["jpeg_quality"];
+        if (quality < 0 || quality > 63)
+        {
+            request->send(400, "text/plain", "Invalid jpeg_quality: must be between 0 and 63.");
+            return;
+        }
+    }
+
+    if (doc.containsKey("xclk_freq"))
+    {
+        int freq = doc["xclk_freq"];
+        if (freq < 10 || freq > 24)
+        {
+            request->send(400, "text/plain", "Invalid xclk_freq: must be between 10 and 24.");
+            return;
+        }
     }
 
     if (xSemaphoreTake(xStateMutex, pdMS_TO_TICKS(1000)) == pdTRUE)
@@ -118,7 +160,7 @@ void handle_post_settings(AsyncWebServerRequest *request, uint8_t *data, size_t 
         {
             const char *res_str = doc["resolution"];
             if (res_str)
-            { 
+            {
                 strlcpy(g_app_state.settings.resolution, res_str, sizeof(g_app_state.settings.resolution));
             }
         }
@@ -126,7 +168,7 @@ void handle_post_settings(AsyncWebServerRequest *request, uint8_t *data, size_t 
         {
             const char *ssid_str = doc["wifi_ssid"];
             if (ssid_str)
-            { 
+            {
                 strlcpy(g_app_state.settings.wifi_ssid, ssid_str, sizeof(g_app_state.settings.wifi_ssid));
             }
         }
@@ -136,6 +178,10 @@ void handle_post_settings(AsyncWebServerRequest *request, uint8_t *data, size_t 
             if (pass_str)
             {
                 strlcpy(g_app_state.settings.wifi_pass, pass_str, sizeof(g_app_state.settings.wifi_pass));
+            }
+            else
+            {
+                g_app_state.settings.wifi_pass[0] = '\0';
             }
         }
 
