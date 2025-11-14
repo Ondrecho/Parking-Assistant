@@ -6,6 +6,8 @@
 
 extern SemaphoreHandle_t xCameraMutex;
 
+const size_t MAX_FRAME_SIZE_BYTES = 100 * 1024;
+
 void stream_task(void *pvParameters) {
     (void)pvParameters;
 
@@ -19,14 +21,11 @@ void stream_task(void *pvParameters) {
                 continue;
             }
 
-            // Шаг 1: Сначала проверяем, можем ли мы ВООБЩЕ что-то отправить.
             if (!is_stream_writable()) {
-                // Дадим сетевой задаче время на очистку буфера.
                 vTaskDelay(pdMS_TO_TICKS(10)); 
-                continue; // Начинаем следующую итерацию цикла.
+                continue;
             }
 
-            // Если мы здесь, значит буфер свободен. Теперь можно работать с камерой.
             camera_fb_t *fb = NULL;
 
             if (xSemaphoreTake(xCameraMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
@@ -34,21 +33,22 @@ void stream_task(void *pvParameters) {
                 xSemaphoreGive(xCameraMutex);
             }
 
-            if (!fb) {
+            if (fb) {
+                if (fb->len > MAX_FRAME_SIZE_BYTES) {
+                    Serial.printf("[StreamTask] Frame too large (%u bytes > %u), dropping.\n", fb->len, MAX_FRAME_SIZE_BYTES);
+                } else {
+                    broadcast_ws_stream(fb->buf, fb->len);
+                }
+
+                if (xSemaphoreTake(xCameraMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+                    esp_camera_fb_return(fb);
+                    xSemaphoreGive(xCameraMutex);
+                }
+            } else {
                 vTaskDelay(pdMS_TO_TICKS(10));
                 continue;
             }
-
-            // Отправляем кадр (мы уже знаем, что буфер был свободен)
-            broadcast_ws_stream(fb->buf, fb->len);
-
-            // Возвращаем буфер кадра
-            if (xSemaphoreTake(xCameraMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-                esp_camera_fb_return(fb);
-                xSemaphoreGive(xCameraMutex);
-            }
             
-            // Минимальная задержка, чтобы уступить процессорное время, когда все хорошо
             vTaskDelay(pdMS_TO_TICKS(1)); 
         }
 
