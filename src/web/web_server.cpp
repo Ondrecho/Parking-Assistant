@@ -8,7 +8,6 @@
 #include "tasks/camera_task.h"
 #include "websocket_manager.h"
 #include "esp_camera.h"
-#include "tasks/camera_utils.h" 
 
 AsyncWebServer server(80);
 extern SemaphoreHandle_t xCameraMutex;
@@ -188,32 +187,66 @@ void handle_api_action(AsyncWebServerRequest *request, uint8_t *data, size_t len
     }
 }
 
-void handle_snapshot(AsyncWebServerRequest *request) {
+void handle_snapshot(AsyncWebServerRequest *request)
+{
+    camera_fb_t *fb = NULL;
     bool stream_was_active = (xEventGroupGetBits(xAppEventGroup) & CAM_INITIALIZED_BIT) != 0;
 
-    if (!stream_was_active) {
+    // Шаг 1: Включаем камеру, если она выключена
+    if (!stream_was_active)
+    {
         xEventGroupSetBits(xAppEventGroup, CAM_STREAM_REQUEST_BIT);
         EventBits_t bits = xEventGroupWaitBits(xAppEventGroup, CAM_INITIALIZED_BIT, pdFALSE, pdTRUE, pdMS_TO_TICKS(2000));
-        if ((bits & CAM_INITIALIZED_BIT) == 0) {
+        if ((bits & CAM_INITIALIZED_BIT) == 0)
+        {
             xEventGroupClearBits(xAppEventGroup, CAM_STREAM_REQUEST_BIT);
             request->send(503, "text/plain", "Camera snapshot timeout");
             return;
         }
     }
 
-    camera_fb_t *fb = safe_camera_get_fb();
+    // Шаг 2: Безопасно получаем кадр с помощью мьютекса
+    if (xSemaphoreTake(xCameraMutex, pdMS_TO_TICKS(1000)) == pdTRUE)
+    {
+        fb = esp_camera_fb_get();
+        xSemaphoreGive(xCameraMutex);
+    }
+    else
+    {
+        // Не удалось получить доступ к камере, она может быть занята
+        request->send(503, "text/plain", "Camera is busy, try again");
+        // Выключаем камеру, если мы ее включили
+        if (!stream_was_active && get_stream_clients_count() == 0)
+        {
+            xEventGroupClearBits(xAppEventGroup, CAM_STREAM_REQUEST_BIT);
+        }
+        return;
+    }
 
-    if (!stream_was_active) {
-        if (get_stream_clients_count() == 0) {
-             xEventGroupClearBits(xAppEventGroup, CAM_STREAM_REQUEST_BIT);
+    // Шаг 3: Выключаем камеру, если мы ее включили и больше нет "зрителей"
+    if (!stream_was_active)
+    {
+        if (get_stream_clients_count() == 0)
+        {
+            xEventGroupClearBits(xAppEventGroup, CAM_STREAM_REQUEST_BIT);
         }
     }
 
-    if (!fb) {
-        request->send(503, "text/plain", "Failed to get frame, camera may be busy");
-    } else {
+    // Шаг 4: Отправляем кадр и безопасно возвращаем буфер
+    if (!fb)
+    {
+        request->send(503, "text/plain", "Failed to get frame");
+    }
+    else
+    {
         request->send_P(200, "image/jpeg", (const uint8_t *)fb->buf, fb->len);
-        safe_camera_return_fb(fb);
+
+        // Безопасно возвращаем буфер
+        if (xSemaphoreTake(xCameraMutex, pdMS_TO_TICKS(1000)) == pdTRUE)
+        {
+            esp_camera_fb_return(fb);
+            xSemaphoreGive(xCameraMutex);
+        }
     }
 }
 
