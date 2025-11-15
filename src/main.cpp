@@ -47,6 +47,7 @@ void setup()
     g_app_state.is_camera_initialized = false;
     g_app_state.is_parktronic_active = false;
     g_app_state.is_manually_activated = false;
+    g_app_state.is_muted = false;
 
     WiFi.mode(WIFI_AP);
     WiFi.softAP(g_app_state.settings.wifi_ssid, g_app_state.settings.wifi_pass);
@@ -76,7 +77,7 @@ void setup()
     }
 
     task_creation_result = xTaskCreatePinnedToCore(
-        stream_task, "StreamTask", 3072, NULL, 4, NULL, 1);
+        stream_task, "StreamTask", 4096, NULL, 4, NULL, 1);
     if (task_creation_result != pdPASS)
     {
         Serial.println("CRITICAL: Failed to create StreamTask!");
@@ -92,7 +93,7 @@ void setup()
     }
 
     task_creation_result = xTaskCreatePinnedToCore(
-        parktronic_manager_task, "ParktronicManager", 2048, NULL, 3, NULL, 1);
+        parktronic_manager_task, "ParktronicManager", 2048, NULL, 2, NULL, 1);
     if (task_creation_result != pdPASS)
     {
         Serial.println("CRITICAL: Failed to create ParktronicManager!");

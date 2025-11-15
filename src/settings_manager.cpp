@@ -23,7 +23,6 @@ void load_default_settings()
     g_app_state.settings.jpeg_quality = 20;
     g_app_state.settings.flip_h = true;
     g_app_state.settings.flip_v = false;
-    g_app_state.settings.is_muted = false;
     g_app_state.settings.volume = 100;
     g_app_state.settings.buzzer_tone_hz = 1760; 
     g_app_state.settings.stream_active = true;
@@ -60,7 +59,6 @@ void settings_init()
                 g_app_state.settings.jpeg_quality = doc["jpeg_quality"] | 20;
                 g_app_state.settings.flip_h = doc["flip_h"] | true;
                 g_app_state.settings.flip_v = doc["flip_v"] | false;
-                g_app_state.settings.is_muted = doc["is_muted"] | false;
                 g_app_state.settings.volume = doc["volume"] | 100;
                 g_app_state.settings.buzzer_tone_hz = doc["buzzer_tone_hz"] | 1760; 
                 g_app_state.settings.stream_active = doc["stream_active"] | true;
@@ -112,7 +110,6 @@ bool settings_save()
     doc["jpeg_quality"] = g_app_state.settings.jpeg_quality;
     doc["flip_h"] = g_app_state.settings.flip_h;
     doc["flip_v"] = g_app_state.settings.flip_v;
-    doc["is_muted"] = g_app_state.settings.is_muted;
     doc["volume"] = g_app_state.settings.volume;
     doc["buzzer_tone_hz"] = g_app_state.settings.buzzer_tone_hz;
     doc["stream_active"] = g_app_state.settings.stream_active;

@@ -65,7 +65,6 @@ struct AppSettings
   int rotation;
   int xclk_freq;
   // System
-  bool is_muted;
   int volume;
   int buzzer_tone_hz;    
   bool stream_active;

@@ -10,6 +10,7 @@ struct AppState {
     bool is_camera_initialized;
     bool is_parktronic_active;     
     bool is_manually_activated;    
+    bool is_muted;
 };
 
 extern AppState g_app_state;

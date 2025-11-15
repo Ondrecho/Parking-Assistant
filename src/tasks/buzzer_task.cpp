@@ -28,7 +28,7 @@ void buzzer_task(void *pvParameters) {
                         min_dist = g_app_state.sensor_distances[i];
                     }
                 }
-                is_muted = g_app_state.settings.is_muted;
+                is_muted = g_app_state.is_muted;
                 vol = g_app_state.settings.volume;
                 tone = g_app_state.settings.buzzer_tone_hz;
                 r = g_app_state.settings.thresh_red;
