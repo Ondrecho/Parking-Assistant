@@ -1,6 +1,11 @@
 #pragma once
 #include <Arduino.h>
 
+// --- Пин-ауты управления парктроником ---
+#define REVERSE_GEAR_PIN 14  // Вход: сигнал задней передачи (LOW = активен)
+#define SENSORS_POWER_PIN 3  // Выход: питание датчиков (HIGH = вкл)
+#define BUZZER_PIN 46        // Выход: пассивный зуммер
+
 // --- WiFi ---
 #define WIFI_AP_SSID "ESP32_Park_AP"
 #define WIFI_AP_PASS "12345678"
@@ -62,6 +67,7 @@ struct AppSettings
   // System
   bool is_muted;
   int volume;
+  int buzzer_tone_hz;    
   bool stream_active;
   // WiFi
   char wifi_ssid[32];

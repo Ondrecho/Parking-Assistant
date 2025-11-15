@@ -42,6 +42,7 @@ void handle_get_settings(AsyncWebServerRequest *request)
         doc["flip_v"] = g_app_state.settings.flip_v;
         doc["is_muted"] = g_app_state.settings.is_muted;
         doc["volume"] = g_app_state.settings.volume;
+        doc["buzzer_tone_hz"] = g_app_state.settings.buzzer_tone_hz;
         doc["stream_active"] = g_app_state.settings.stream_active;
         doc["rotation"] = g_app_state.settings.rotation;
         doc["xclk_freq"] = g_app_state.settings.xclk_freq;
@@ -149,6 +150,8 @@ void handle_post_settings(AsyncWebServerRequest *request, uint8_t *data, size_t 
             g_app_state.settings.is_muted = doc["is_muted"];
         if (doc.containsKey("volume"))
             g_app_state.settings.volume = doc["volume"];
+        if (doc.containsKey("buzzer_tone_hz"))
+            g_app_state.settings.buzzer_tone_hz = doc["buzzer_tone_hz"];
         if (doc.containsKey("stream_active"))
             g_app_state.settings.stream_active = doc["stream_active"];
         if (doc.containsKey("rotation"))
@@ -245,6 +248,15 @@ void handle_api_action(AsyncWebServerRequest *request, uint8_t *data, size_t len
     else if (strcmp(action, "resetSettings") == 0)
     {
         settings_reset_to_default();
+        request->send(200, "text/plain", "OK");
+    }
+    else if (strcmp(action, "toggleParktronic") == 0)
+    {
+        if (xSemaphoreTake(xStateMutex, pdMS_TO_TICKS(100)) == pdTRUE)
+        {
+            g_app_state.is_manually_activated = !g_app_state.is_manually_activated;
+            xSemaphoreGive(xStateMutex);
+        }
         request->send(200, "text/plain", "OK");
     }
     else
