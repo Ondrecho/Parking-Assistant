@@ -10,10 +10,11 @@ void parktronic_manager_task(void *pvParameters) {
 
     pinMode(REVERSE_GEAR_PIN, INPUT_PULLUP);
     pinMode(SENSORS_POWER_PIN, OUTPUT);
-    digitalWrite(SENSORS_POWER_PIN, LOW); 
+    digitalWrite(SENSORS_POWER_PIN, LOW);
 
     unsigned long last_reverse_active_time = 0;
     bool current_state_is_active = false;
+    bool prev_manually_activated = false;
 
     Serial.println("Parktronic Manager task started");
 
@@ -27,6 +28,12 @@ void parktronic_manager_task(void *pvParameters) {
             manually_activated = g_app_state.is_manually_activated;
             xSemaphoreGive(xStateMutex);
         }
+
+        if (!manually_activated && prev_manually_activated) {
+            last_reverse_active_time = 0;
+            Serial.println("[Parktronic] Manual override: Grace period cancelled.");
+        }
+        prev_manually_activated = manually_activated;
 
         bool should_be_active_now = (is_reverse_gear_on && auto_start_enabled) || manually_activated;
 
@@ -55,6 +62,6 @@ void parktronic_manager_task(void *pvParameters) {
             }
         }
         
-        vTaskDelay(pdMS_TO_TICKS(50)); 
+        vTaskDelay(pdMS_TO_TICKS(50));
     }
 }
