@@ -209,52 +209,20 @@ void handle_post_settings(AsyncWebServerRequest *request, uint8_t *data, size_t 
     }
 }
 
-void handle_api_action(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total)
-{
-    if (index + len != total)
-        return;
+void handle_mute_toggle(AsyncWebServerRequest *request) {
+    if (xSemaphoreTake(xStateMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        g_app_state.is_muted = !g_app_state.is_muted;
+        xSemaphoreGive(xStateMutex);
+    }
+    request->send(200, "text/plain", "OK");
+}
 
-    DynamicJsonDocument doc(256);
-    if (deserializeJson(doc, data, len))
-    {
-        request->send(400, "text/plain", "Invalid JSON");
-        return;
+void handle_parktronic_toggle(AsyncWebServerRequest *request) {
+    if (xSemaphoreTake(xStateMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        g_app_state.is_manually_activated = !g_app_state.is_manually_activated;
+        xSemaphoreGive(xStateMutex);
     }
-
-    const char *action = doc["action"];
-    if (!action)
-    {
-        request->send(400, "text/plain", "Action not specified");
-        return;
-    }
-
-    if (strcmp(action, "toggleMute") == 0)
-    {
-        if (xSemaphoreTake(xStateMutex, pdMS_TO_TICKS(100)) == pdTRUE)
-        {
-            g_app_state.is_muted = !g_app_state.is_muted;
-            xSemaphoreGive(xStateMutex);
-        }
-        request->send(200, "text/plain", "OK");
-    }
-    else if (strcmp(action, "resetSettings") == 0)
-    {
-        settings_reset_to_default();
-        request->send(200, "text/plain", "OK");
-    }
-    else if (strcmp(action, "toggleParktronic") == 0)
-    {
-        if (xSemaphoreTake(xStateMutex, pdMS_TO_TICKS(100)) == pdTRUE)
-        {
-            g_app_state.is_manually_activated = !g_app_state.is_manually_activated;
-            xSemaphoreGive(xStateMutex);
-        }
-        request->send(200, "text/plain", "OK");
-    }
-    else
-    {
-        request->send(400, "text/plain", "Unknown action");
-    }
+    request->send(200, "text/plain", "OK");
 }
 
 void handle_snapshot(AsyncWebServerRequest *request)
@@ -320,16 +288,21 @@ void handle_snapshot(AsyncWebServerRequest *request)
     }
 }
 
-void init_web_server()
-{
+void init_web_server() {
     init_websockets(server);
 
     server.on("/api/settings", HTTP_GET, handle_get_settings);
-    server.on("/api/settings", HTTP_POST, [](AsyncWebServerRequest *request)
-              { request->send(200); }, NULL, handle_post_settings);
-    server.on("/api/action", HTTP_POST, [](AsyncWebServerRequest *request) {}, NULL, handle_api_action);
-    server.on("/api/snapshot", HTTP_GET, handle_snapshot);
+    server.on(
+        "/api/settings", HTTP_POST, 
+        [](AsyncWebServerRequest *request){ request->send(200); }, NULL, handle_post_settings
+    );
+    
+    
+    server.on("/api/mute/toggle", HTTP_POST, handle_mute_toggle);
+    server.on("/api/parktronic/toggle", HTTP_POST, handle_parktronic_toggle);
 
+    server.on("/api/snapshot", HTTP_GET, handle_snapshot);
+    
     server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html").setCacheControl("max-age=600");
     server.onNotFound(onNotFound);
 
