@@ -42,8 +42,7 @@ void handle_get_settings(AsyncWebServerRequest *request)
         doc["flip_v"] = g_app_state.settings.flip_v;
         doc["is_muted"] = g_app_state.is_muted;
         doc["volume"] = g_app_state.settings.volume;
-        doc["buzzer_tone_hz"] = g_app_state.settings.buzzer_tone_hz;
-        doc["stream_active"] = g_app_state.settings.stream_active;
+        doc["beep_freq"] = g_app_state.settings.beep_freq;
         doc["rotation"] = g_app_state.settings.rotation;
         doc["xclk_freq"] = g_app_state.settings.xclk_freq;
         doc["wifi_ssid"] = g_app_state.settings.wifi_ssid;
@@ -56,6 +55,10 @@ void handle_get_settings(AsyncWebServerRequest *request)
         return;
     }
 
+    Serial.println("Sending settings JSON:");
+    serializeJsonPretty(doc, Serial);
+    Serial.println();
+
     serializeJson(doc, *response);
     request->send(response);
 }
@@ -64,6 +67,10 @@ void handle_post_settings(AsyncWebServerRequest *request, uint8_t *data, size_t 
 {
     if (index + len != total)
         return;
+
+    Serial.print("Received JSON: ");
+    Serial.write(data, len);
+    Serial.println();
 
     DynamicJsonDocument doc(2048);
     DeserializationError error = deserializeJson(doc, data, len);
@@ -148,10 +155,8 @@ void handle_post_settings(AsyncWebServerRequest *request, uint8_t *data, size_t 
             g_app_state.settings.flip_v = doc["flip_v"];
         if (doc.containsKey("volume"))
             g_app_state.settings.volume = doc["volume"];
-        if (doc.containsKey("buzzer_tone_hz"))
-            g_app_state.settings.buzzer_tone_hz = doc["buzzer_tone_hz"];
-        if (doc.containsKey("stream_active"))
-            g_app_state.settings.stream_active = doc["stream_active"];
+        if (doc.containsKey("beep_freq"))
+            g_app_state.settings.beep_freq = doc["beep_freq"];
         if (doc.containsKey("rotation"))
             g_app_state.settings.rotation = doc["rotation"];
         if (doc.containsKey("xclk_freq"))
@@ -223,21 +228,13 @@ void handle_api_action(AsyncWebServerRequest *request, uint8_t *data, size_t len
         return;
     }
 
-    if (strcmp(action, "toggleMute") == 0) {
-    if (xSemaphoreTake(xStateMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-        g_app_state.is_muted = !g_app_state.is_muted; 
-        xSemaphoreGive(xStateMutex);
-    }
-    request->send(200, "text/plain", "OK");
-}
-    else if (strcmp(action, "toggleStream") == 0)
+    if (strcmp(action, "toggleMute") == 0)
     {
         if (xSemaphoreTake(xStateMutex, pdMS_TO_TICKS(100)) == pdTRUE)
         {
-            g_app_state.settings.stream_active = !g_app_state.settings.stream_active;
+            g_app_state.is_muted = !g_app_state.is_muted;
             xSemaphoreGive(xStateMutex);
         }
-        settings_save();
         request->send(200, "text/plain", "OK");
     }
     else if (strcmp(action, "resetSettings") == 0)

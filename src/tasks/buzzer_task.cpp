@@ -30,7 +30,7 @@ void buzzer_task(void *pvParameters) {
                 }
                 is_muted = g_app_state.is_muted;
                 vol = g_app_state.settings.volume;
-                tone = g_app_state.settings.buzzer_tone_hz;
+                tone = g_app_state.settings.beep_freq;
                 r = g_app_state.settings.thresh_red;
                 o = g_app_state.settings.thresh_orange;
                 y = g_app_state.settings.thresh_yellow;

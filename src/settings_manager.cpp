@@ -24,8 +24,7 @@ void load_default_settings()
     g_app_state.settings.flip_h = true;
     g_app_state.settings.flip_v = false;
     g_app_state.settings.volume = 100;
-    g_app_state.settings.buzzer_tone_hz = 1760; 
-    g_app_state.settings.stream_active = true;
+    g_app_state.settings.beep_freq = 1760; 
     g_app_state.settings.rotation = 90;
     g_app_state.settings.xclk_freq = 22;
     strncpy(g_app_state.settings.wifi_ssid, WIFI_AP_SSID, sizeof(g_app_state.settings.wifi_ssid));
@@ -60,8 +59,7 @@ void settings_init()
                 g_app_state.settings.flip_h = doc["flip_h"] | true;
                 g_app_state.settings.flip_v = doc["flip_v"] | false;
                 g_app_state.settings.volume = doc["volume"] | 100;
-                g_app_state.settings.buzzer_tone_hz = doc["buzzer_tone_hz"] | 1760; 
-                g_app_state.settings.stream_active = doc["stream_active"] | true;
+                g_app_state.settings.beep_freq = doc["beep_freq"] | 1760; 
                 g_app_state.settings.rotation = doc["rotation"] | 90;
                 g_app_state.settings.xclk_freq = doc["xclk_freq"] | 22;
                 strlcpy(g_app_state.settings.wifi_ssid, doc["wifi_ssid"] | WIFI_AP_SSID, sizeof(g_app_state.settings.wifi_ssid));
@@ -111,8 +109,7 @@ bool settings_save()
     doc["flip_h"] = g_app_state.settings.flip_h;
     doc["flip_v"] = g_app_state.settings.flip_v;
     doc["volume"] = g_app_state.settings.volume;
-    doc["buzzer_tone_hz"] = g_app_state.settings.buzzer_tone_hz;
-    doc["stream_active"] = g_app_state.settings.stream_active;
+    doc["beep_freq"] = g_app_state.settings.beep_freq;
     doc["rotation"] = g_app_state.settings.rotation;
     doc["xclk_freq"] = g_app_state.settings.xclk_freq;
     doc["wifi_ssid"] = g_app_state.settings.wifi_ssid;

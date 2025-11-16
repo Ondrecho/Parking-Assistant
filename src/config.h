@@ -66,8 +66,7 @@ struct AppSettings
   int xclk_freq;
   // System
   int volume;
-  int buzzer_tone_hz;    
-  bool stream_active;
+  int beep_freq;    
   // WiFi
   char wifi_ssid[32];
   char wifi_pass[64];
