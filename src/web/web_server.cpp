@@ -63,6 +63,11 @@ void handle_get_settings(AsyncWebServerRequest *request)
     request->send(response);
 }
 
+void handle_settings_reset(AsyncWebServerRequest *request) {
+    settings_reset_to_default();
+    request->send(200, "text/plain", "OK. Settings have been reset.");
+}
+
 void handle_post_settings(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total)
 {
     if (index + len != total)
@@ -288,12 +293,10 @@ void init_web_server() {
         "/api/settings", HTTP_POST, 
         [](AsyncWebServerRequest *request){ request->send(200); }, NULL, handle_post_settings
     );
-    
-    
+    server.on("/api/settings/reset", HTTP_POST, handle_settings_reset);
     server.on("/api/mute/toggle", HTTP_POST, handle_mute_toggle);
-
     server.on("/api/snapshot", HTTP_GET, handle_snapshot);
-    
+
     server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html").setCacheControl("max-age=600");
     server.onNotFound(onNotFound);
 
