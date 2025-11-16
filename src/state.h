@@ -9,7 +9,6 @@ struct AppState {
     float sensor_distances[NUM_SENSORS];
     bool is_camera_initialized;
     bool is_parktronic_active;     
-    bool is_manually_activated;    
     bool is_muted;
 };
 

@@ -2,6 +2,7 @@
 #include <Arduino.h>
 #include "state.h"
 #include "config.h"
+#include "web/websocket_manager.h"
 
 const unsigned long GRACE_PERIOD_MS = 15000; 
 
@@ -14,28 +15,20 @@ void parktronic_manager_task(void *pvParameters) {
 
     unsigned long last_reverse_active_time = 0;
     bool current_state_is_active = false;
-    bool prev_manually_activated = false;
 
     Serial.println("Parktronic Manager task started");
 
     for (;;) {
         bool is_reverse_gear_on = (digitalRead(REVERSE_GEAR_PIN) == LOW);
+        bool is_client_listening = (get_ws_clients_count() > 0);
         bool auto_start_enabled = false;
-        bool manually_activated = false;
         
-        if (xSemaphoreTake(xStateMutex, portMAX_DELAY) == pdTRUE) {
+        if (xSemaphoreTake(xStateMutex, pdMS_TO_TICKS(50)) == pdTRUE) {
             auto_start_enabled = g_app_state.settings.auto_start;
-            manually_activated = g_app_state.is_manually_activated;
             xSemaphoreGive(xStateMutex);
         }
 
-        if (!manually_activated && prev_manually_activated) {
-            last_reverse_active_time = 0;
-            Serial.println("[Parktronic] Manual override: Grace period cancelled.");
-        }
-        prev_manually_activated = manually_activated;
-
-        bool should_be_active_now = (is_reverse_gear_on && auto_start_enabled) || manually_activated;
+        bool should_be_active_now = (is_reverse_gear_on && auto_start_enabled) || is_client_listening;
 
         if (is_reverse_gear_on) {
             last_reverse_active_time = millis();

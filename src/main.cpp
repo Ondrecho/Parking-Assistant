@@ -46,7 +46,6 @@ void setup()
     }
     g_app_state.is_camera_initialized = false;
     g_app_state.is_parktronic_active = false;
-    g_app_state.is_manually_activated = false;
     g_app_state.is_muted = false;
 
     WiFi.mode(WIFI_AP);

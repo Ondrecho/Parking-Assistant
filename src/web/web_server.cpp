@@ -217,14 +217,6 @@ void handle_mute_toggle(AsyncWebServerRequest *request) {
     request->send(200, "text/plain", "OK");
 }
 
-void handle_parktronic_toggle(AsyncWebServerRequest *request) {
-    if (xSemaphoreTake(xStateMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-        g_app_state.is_manually_activated = !g_app_state.is_manually_activated;
-        xSemaphoreGive(xStateMutex);
-    }
-    request->send(200, "text/plain", "OK");
-}
-
 void handle_snapshot(AsyncWebServerRequest *request)
 {
     camera_fb_t *fb = NULL;
@@ -299,7 +291,6 @@ void init_web_server() {
     
     
     server.on("/api/mute/toggle", HTTP_POST, handle_mute_toggle);
-    server.on("/api/parktronic/toggle", HTTP_POST, handle_parktronic_toggle);
 
     server.on("/api/snapshot", HTTP_GET, handle_snapshot);
     
